@@ -8,10 +8,13 @@ import {
   Settings, 
   LogOut,
   User as UserIcon,
-  Activity
+  Activity,
+  Cpu
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import SystemStatus from '../components/SystemStatus';
+import { useUserStore } from '../store/userStore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -85,7 +88,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             </h2>
             <p className="text-slate-500 text-sm mt-1">Manage your AI agents and workflows efficiently.</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
+            <SystemStatus />
             <div className="flex -space-x-2">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">

@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
 import { AgentRole } from '../types';
+import TaskAssignment from '../components/TaskAssignment';
+import PerformanceChart from '../components/PerformanceChart';
+import { cn } from '../lib/utils';
 
 const roleIcons: Record<AgentRole, React.ElementType> = {
   global_manager: Shield,
@@ -119,31 +122,31 @@ const Agents: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    {agent.name}
-                    {!agent.is_active && <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Inactive</span>}
-                  </h3>
-                  <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mt-1">{agent.role.replace('_', ' ')}</p>
+                <div className="flex justify-between items-start">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-base font-bold text-slate-800 truncate">{agent.name}</h4>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">{agent.role.replace('_', ' ')}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-xs font-bold text-teal-600">
+                      {(agent as any).performance?.success_rate || 90}%
+                    </span>
+                    <p className="text-[8px] text-slate-400 uppercase tracking-tighter font-bold">Efficiency</p>
+                  </div>
                 </div>
 
                 <div className="mt-6 space-y-4">
-                  <div>
-                    <div className="flex justify-between text-xs font-medium mb-1.5">
-                      <span className="text-slate-500">Priority Level</span>
-                      <span className="text-slate-800">{agent.priority}/10</span>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <span>Learning Trend</span>
+                      <span className="text-emerald-500">Improving</span>
                     </div>
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-teal-500 rounded-full transition-all duration-500"
-                        style={{ width: `${agent.priority * 10}%` }}
-                      />
-                    </div>
+                    <PerformanceChart data={[70, 75, 72, 85, 82, 90, 88, 92]} />
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {agent.capabilities.map((cap, i) => (
-                      <span key={i} className="px-2 py-1 bg-slate-50 text-slate-600 text-[10px] font-medium rounded-md border border-slate-100">
+                  <div className="flex flex-wrap gap-1.5">
+                    {agent.capabilities.map((cap) => (
+                      <span key={cap} className="text-[10px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">
                         {cap}
                       </span>
                     ))}
@@ -153,6 +156,10 @@ const Agents: React.FC = () => {
             );
           })}
         </AnimatePresence>
+      </div>
+
+      <div className="mt-12">
+        <TaskAssignment agents={agents} />
       </div>
 
       {/* Create Agent Modal */}

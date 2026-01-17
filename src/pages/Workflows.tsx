@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import { useWorkflowStore } from '../store/workflowStore';
 import { format } from 'date-fns';
+import WorkflowDesigner from '../components/WorkflowDesigner';
 
 const Workflows: React.FC = () => {
-  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow } = useWorkflowStore();
+  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow } = useWorkflowStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [newWorkflow, setNewWorkflow] = useState({
     name: '',
@@ -41,6 +43,13 @@ const Workflows: React.FC = () => {
   const filteredWorkflows = workflows.filter(w => 
     w.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleSaveWorkflowConfig = async (config: any) => {
+    if (selectedWorkflow) {
+      await updateWorkflow(selectedWorkflow.id, { configuration: config });
+      setSelectedWorkflow(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -73,7 +82,8 @@ const Workflows: React.FC = () => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
               transition={{ delay: index * 0.05 }}
-              className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all flex items-center gap-6 group"
+              className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all flex items-center gap-6 group cursor-pointer"
+              onClick={() => setSelectedWorkflow(workflow)}
             >
               <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center text-teal-600 flex-shrink-0">
                 <GitBranch size={24} />
@@ -125,6 +135,14 @@ const Workflows: React.FC = () => {
       </div>
 
       {/* New Workflow Modal */}
+      {selectedWorkflow && (
+        <WorkflowDesigner 
+          workflow={selectedWorkflow} 
+          onClose={() => setSelectedWorkflow(null)} 
+          onSave={handleSaveWorkflowConfig} 
+        />
+      )}
+
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
           <motion.div

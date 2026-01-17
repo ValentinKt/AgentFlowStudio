@@ -15,4 +15,7 @@
 [x] Add Multi-Modal capabilities (Voice and Image processing)
 [x] Implement Customizable Dashboard with drag-and-drop widgets
 [x] Add AI-driven UI adjustments and self-learning simulation
+[x] Implement Visual Workflow Designer with draggable nodes
+[x] Implement Agent Task Assignment Panel with drag-and-drop
+[x] Enhance Settings with functional theme and preference persistence
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)

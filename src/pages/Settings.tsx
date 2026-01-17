@@ -1,21 +1,25 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  User, 
+  User as UserIcon, 
   Key, 
   Bell, 
   Globe, 
   Moon, 
   Shield, 
   Save,
-  Terminal
+  Terminal,
+  Sun
 } from 'lucide-react';
+import { useUserStore } from '../store/userStore';
 
 const Settings: React.FC = () => {
+  const { user, theme, toggleTheme, updatePreferences } = useUserStore();
   const [activeTab, setActiveTab] = useState<'profile' | 'api' | 'system'>('profile');
+  const [notifications, setNotifications] = useState(true);
 
   const tabs = [
-    { id: 'profile', name: 'Profile', icon: User },
+    { id: 'profile', name: 'Profile', icon: UserIcon },
     { id: 'api', name: 'API Configuration', icon: Key },
     { id: 'system', name: 'System Preferences', icon: Globe },
   ];
@@ -53,11 +57,11 @@ const Settings: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-slate-700">Full Name</label>
-                  <input type="text" defaultValue="Valentin" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" />
+                  <input type="text" defaultValue={user?.name} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-slate-700">Email Address</label>
-                  <input type="email" defaultValue="valentin@example.com" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" />
+                  <input type="email" defaultValue={user?.email} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" />
                 </div>
               </div>
               <div className="flex items-center gap-4 p-4 bg-teal-50/50 rounded-xl border border-teal-100">
@@ -109,11 +113,17 @@ const Settings: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
                   <div className="flex items-center gap-3">
-                    <Moon size={20} className="text-slate-400" />
+                    {theme === 'dark' ? <Moon size={20} className="text-teal-500" /> : <Sun size={20} className="text-amber-500" />}
                     <span className="text-sm font-medium text-slate-700">Dark Mode</span>
                   </div>
-                  <button className="w-12 h-6 bg-slate-200 rounded-full relative p-1 transition-all">
-                    <div className="w-4 h-4 bg-white rounded-full shadow-sm" />
+                  <button 
+                    onClick={toggleTheme}
+                    className={`w-12 h-6 rounded-full relative p-1 transition-all ${theme === 'dark' ? 'bg-teal-500' : 'bg-slate-200'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: theme === 'dark' ? 24 : 0 }}
+                      className="w-4 h-4 bg-white rounded-full shadow-sm" 
+                    />
                   </button>
                 </div>
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -121,8 +131,14 @@ const Settings: React.FC = () => {
                     <Bell size={20} className="text-slate-400" />
                     <span className="text-sm font-medium text-slate-700">System Notifications</span>
                   </div>
-                  <button className="w-12 h-6 bg-teal-500 rounded-full relative p-1 transition-all">
-                    <div className="w-4 h-4 bg-white rounded-full shadow-sm translate-x-6" />
+                  <button 
+                    onClick={() => setNotifications(!notifications)}
+                    className={`w-12 h-6 rounded-full relative p-1 transition-all ${notifications ? 'bg-teal-500' : 'bg-slate-200'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: notifications ? 24 : 0 }}
+                      className="w-4 h-4 bg-white rounded-full shadow-sm" 
+                    />
                   </button>
                 </div>
               </div>

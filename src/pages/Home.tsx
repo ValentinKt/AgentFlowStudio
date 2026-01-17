@@ -17,6 +17,7 @@ import { useWorkflowStore } from '../store/workflowStore';
 import { useDataStore } from '../store/dataStore';
 import { formatDistanceToNow } from 'date-fns';
 import DashboardOrchestrator from '../components/DashboardOrchestrator';
+import PerformancePredictor from '../components/PerformancePredictor';
 
 const Home: React.FC = () => {
   const { agents, fetchAgents } = useAgentStore();
@@ -25,7 +26,7 @@ const Home: React.FC = () => {
   const [isCustomizing, setIsCustomizing] = useState(false);
   
   // Dashboard Widget State
-  const [widgetOrder, setWidgetOrder] = useState(['stats', 'timeline', 'agents', 'activity', 'external']);
+  const [widgetOrder, setWidgetOrder] = useState(['predictor', 'stats', 'timeline', 'agents', 'activity', 'external']);
 
   useEffect(() => {
     fetchAgents();
@@ -108,6 +109,10 @@ const Home: React.FC = () => {
             )}
             
             <div className={`${isCustomizing ? 'ring-2 ring-teal-500/30 ring-offset-4 rounded-2xl opacity-80' : ''} transition-all`}>
+              {widgetId === 'predictor' && (
+                <PerformancePredictor agents={agents} />
+              )}
+
               {widgetId === 'stats' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {stats.map((stat, index) => (
