@@ -8,4 +8,5 @@
 [x] Develop Agent Management and Workflow Builder pages
 [x] Implement Prompt Analyzer and system settings
 [x] Integrate Ollama simulation logic for AI agents
+[x] Create vercel.json for deployment
 [ ] Deploy to Vercel and final testing
