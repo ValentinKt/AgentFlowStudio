@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-import { Agent, AgentRole } from '../types';
+import { Agent } from '../types';
 
 interface AgentState {
   agents: Agent[];
@@ -13,7 +13,7 @@ interface AgentState {
   toggleAgentStatus: (id: string) => Promise<void>;
 }
 
-export const useAgentStore = create<AgentState>((set, get) => ({
+export const useAgentStore = create<AgentState>((set) => ({
   agents: [],
   isLoading: false,
   error: null,
@@ -28,8 +28,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
       if (error) throw error;
       set({ agents: data as Agent[], isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const error = err as Error;
+      set({ error: error.message, isLoading: false });
     }
   },
 
@@ -47,26 +48,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
       if (error) throw error;
       set((state) => ({ agents: [data as Agent, ...state.agents], isLoading: false }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const error = err as Error;
+      set({ error: error.message, isLoading: false });
     }
   },
 
   updateAgent: async (id, updates) => {
     set({ isLoading: true, error: null });
     try {
-      const { error } = await supabase
-        .from('agents')
-        .update(updates)
-        .eq('id', id);
-
+      const { error } = await supabase.from('agents').update(updates).eq('id', id);
       if (error) throw error;
       set((state) => ({
         agents: state.agents.map((a) => (a.id === id ? { ...a, ...updates } : a)),
         isLoading: false,
       }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const error = err as Error;
+      set({ error: error.message, isLoading: false });
     }
   },
 
@@ -79,14 +78,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         agents: state.agents.filter((a) => a.id !== id),
         isLoading: false,
       }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const error = err as Error;
+      set({ error: error.message, isLoading: false });
     }
   },
 
   toggleAgentStatus: async (id) => {
-    const agent = get().agents.find((a) => a.id === id);
+    const { agents } = useAgentStore.getState();
+    const agent = agents.find((a) => a.id === id);
     if (!agent) return;
-    await get().updateAgent(id, { is_active: !agent.is_active });
+
+    try {
+      const { error } = await supabase
+        .from('agents')
+        .update({ is_active: !agent.is_active })
+        .eq('id', id);
+
+      if (error) throw error;
+      set((state) => ({
+        agents: state.agents.map((a) => (a.id === id ? { ...a, is_active: !a.is_active } : a)),
+      }));
+    } catch (err) {
+      const error = err as Error;
+      console.error('Error toggling agent status:', error.message);
+    }
   },
 }));

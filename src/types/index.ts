@@ -14,7 +14,7 @@ export interface Agent {
 export interface Workflow {
   id: string;
   name: string;
-  configuration: Record<string, any>;
+  configuration: Record<string, unknown>;
   user_id: string;
   created_at: string;
   updated_at: string;
@@ -26,7 +26,7 @@ export interface Execution {
   id: string;
   workflow_id: string;
   status: ExecutionStatus;
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -39,9 +39,9 @@ export interface Task {
   execution_id: string;
   agent_id: string | null;
   description: string;
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
   status: TaskStatus;
-  result: Record<string, any> | null;
+  result: Record<string, unknown> | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -51,7 +51,7 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'developer' | 'user' | 'guest';
-  preferences: Record<string, any>;
+  preferences: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

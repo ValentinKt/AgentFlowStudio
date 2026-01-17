@@ -8,18 +8,28 @@ interface SubTask {
   dependencies: string[];
 }
 
+interface PromptHistory {
+  id: string;
+  global_prompt: string;
+  decomposition: SubTask[];
+  created_at: string;
+}
+
 interface PromptState {
   globalPrompt: string;
   decomposition: SubTask[];
+  history: PromptHistory[];
   isLoading: boolean;
   error: string | null;
   setGlobalPrompt: (prompt: string) => void;
   decomposePrompt: () => Promise<void>;
+  fetchHistory: () => Promise<void>;
 }
 
 export const usePromptStore = create<PromptState>((set, get) => ({
   globalPrompt: '',
   decomposition: [],
+  history: [],
   isLoading: false,
   error: null,
 
@@ -63,9 +73,38 @@ export const usePromptStore = create<PromptState>((set, get) => ({
         ];
       }
 
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        await supabase.from('prompts').insert([
+          { 
+            global_prompt: globalPrompt, 
+            decomposition: mockDecomposition,
+            user_id: userData.user.id
+          }
+        ]);
+        get().fetchHistory();
+      }
+
       set({ decomposition: mockDecomposition, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const error = err as Error;
+      set({ error: error.message, isLoading: false });
+    }
+  },
+
+  fetchHistory: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('prompts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      set({ history: data as PromptHistory[] });
+    } catch (err) {
+      const error = err as Error;
+      console.error('Error fetching prompt history:', error.message);
     }
   },
 }));
