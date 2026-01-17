@@ -1,12 +1,10 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import Home from './pages/Home';
-
-// Placeholder components for other pages
-const Agents = () => <div className="p-4">Agent Management Page</div>;
-const Workflows = () => <div className="p-4">Workflow Builder Page</div>;
-const Analyzer = () => <div className="p-4">Prompt Analyzer Page</div>;
-const Settings = () => <div className="p-4">Settings Page</div>;
+import Agents from './pages/Agents';
+import Workflows from './pages/Workflows';
+import Analyzer from './pages/Analyzer';
+import Settings from './pages/Settings';
 
 function App() {
   return (
