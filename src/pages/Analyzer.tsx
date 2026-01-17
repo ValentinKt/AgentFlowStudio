@@ -8,23 +8,28 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Mic,
+  Image as ImageIcon
 } from 'lucide-react';
 import { usePromptStore } from '../store/promptStore';
 import Mermaid from '../components/Mermaid';
+import VoiceInput from '../components/VoiceInput';
+import ImageUpload from '../components/ImageUpload';
 import { formatDistanceToNow } from 'date-fns';
 
 const Analyzer: React.FC = () => {
   const { globalPrompt, decomposition, history, isLoading, setGlobalPrompt, decomposePrompt, fetchHistory } = usePromptStore();
   const [viewMode, setViewMode] = useState<'visual' | 'table'>('visual');
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
 
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
 
   const handleDecompose = async () => {
-    if (!globalPrompt.trim()) return;
+    if (!globalPrompt.trim() && !selectedImage) return;
     await decomposePrompt();
   };
 
@@ -61,9 +66,15 @@ const Analyzer: React.FC = () => {
       <div className="xl:col-span-3 space-y-8">
         {/* Input Section */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-4 text-teal-600">
-            <Sparkles size={20} />
-            <h3 className="text-lg font-bold text-slate-800">Global Prompt Analysis</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 text-teal-600">
+              <Sparkles size={20} />
+              <h3 className="text-lg font-bold text-slate-800">Global Prompt Analysis</h3>
+            </div>
+            <ImageUpload 
+              selectedImage={selectedImage}
+              onImageSelect={setSelectedImage}
+            />
           </div>
           <div className="relative">
             <textarea
@@ -72,18 +83,24 @@ const Analyzer: React.FC = () => {
               value={globalPrompt}
               onChange={(e) => setGlobalPrompt(e.target.value)}
             />
-            <button
-              onClick={handleDecompose}
-              disabled={isLoading || !globalPrompt.trim()}
-              className="absolute bottom-4 right-4 bg-teal-500 text-white px-6 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isLoading ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Send size={18} />
-              )}
-              Analyze Prompt
-            </button>
+            <div className="absolute bottom-4 right-4 flex items-center gap-2">
+              <VoiceInput 
+                onResult={(text) => setGlobalPrompt(globalPrompt ? `${globalPrompt} ${text}` : text)}
+                className="shadow-sm"
+              />
+              <button
+                onClick={handleDecompose}
+                disabled={isLoading || !globalPrompt.trim()}
+                className="bg-teal-500 text-white px-6 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isLoading ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Send size={18} />
+                )}
+                Analyze Prompt
+              </button>
+            </div>
           </div>
         </div>
 

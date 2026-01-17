@@ -11,6 +11,7 @@ interface AgentState {
   updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
   toggleAgentStatus: (id: string) => Promise<void>;
+  simulateLearning: (id: string, success: boolean) => Promise<void>;
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -103,5 +104,28 @@ export const useAgentStore = create<AgentState>((set) => ({
       const error = err as Error;
       console.error('Error toggling agent status:', error.message);
     }
+  },
+
+  simulateLearning: async (id, success) => {
+    set((state) => ({
+      agents: state.agents.map((a) => {
+        if (a.id !== id) return a;
+        
+        const currentPerf = a.performance || { success_rate: 90, tasks_completed: 10, avg_speed: 1.5 };
+        const newCompleted = currentPerf.tasks_completed + 1;
+        const newSuccessRate = success 
+          ? (currentPerf.success_rate * currentPerf.tasks_completed + 100) / newCompleted
+          : (currentPerf.success_rate * currentPerf.tasks_completed) / newCompleted;
+        
+        return {
+          ...a,
+          performance: {
+            ...currentPerf,
+            success_rate: Number(newSuccessRate.toFixed(2)),
+            tasks_completed: newCompleted,
+          }
+        };
+      })
+    }));
   },
 }));

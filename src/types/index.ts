@@ -9,6 +9,11 @@ export interface Agent {
   is_active: boolean;
   user_id: string;
   created_at: string;
+  performance?: {
+    success_rate: number;
+    tasks_completed: number;
+    avg_speed: number;
+  };
 }
 
 export interface Workflow {
