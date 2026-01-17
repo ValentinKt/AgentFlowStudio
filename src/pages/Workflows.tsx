@@ -15,12 +15,46 @@ import {
 import { useWorkflowStore } from '../store/workflowStore';
 import { format } from 'date-fns';
 import WorkflowDesigner from '../components/WorkflowDesigner';
+import { useNotificationStore } from '../store/notificationStore';
+import { Download, Upload } from 'lucide-react';
 
 const Workflows: React.FC = () => {
   const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow } = useWorkflowStore();
+  const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleExport = (workflow: any) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflow, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `${workflow.name.replace(/\s+/g, '_')}_config.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    addNotification('success', `Exported ${workflow.name} configuration.`);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const config = JSON.parse(event.target?.result as string);
+        await createWorkflow({
+          name: `${config.name} (Imported)`,
+          configuration: config.configuration,
+        });
+        addNotification('success', 'Workflow configuration imported successfully.');
+      } catch (err) {
+        addNotification('error', 'Failed to import workflow. Invalid JSON format.');
+      }
+    };
+    reader.readAsText(file);
+  };
   const [newWorkflow, setNewWorkflow] = useState({
     name: '',
     description: '',
@@ -64,13 +98,20 @@ const Workflows: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
-        >
-          <Plus size={18} />
-          New Workflow
-        </button>
+        <div className="flex gap-3">
+          <label className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all shadow-sm cursor-pointer">
+            <Upload size={18} />
+            Import Config
+            <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+          </label>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
+          >
+            <Plus size={18} />
+            New Workflow
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
@@ -108,21 +149,45 @@ const Workflows: React.FC = () => {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => executeWorkflow(workflow.id, {})}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExport(workflow);
+                  }}
+                  className="p-2.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
+                  title="Export Configuration"
+                >
+                  <Download size={18} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    executeWorkflow(workflow.id, {});
+                    addNotification('info', `Execution started for ${workflow.name}.`);
+                  }}
                   className="p-2.5 text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors"
                   title="Execute Workflow"
                 >
                   <Play size={18} fill="currentColor" />
                 </button>
-                <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
+                <button 
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
+                >
                   <History size={18} />
                 </button>
-                <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
+                <button 
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
+                >
                   <Settings2 size={18} />
                 </button>
                 <div className="w-px h-6 bg-slate-100 mx-1" />
                 <button 
-                  onClick={() => deleteWorkflow(workflow.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteWorkflow(workflow.id);
+                    addNotification('success', `Deleted workflow ${workflow.name}.`);
+                  }}
                   className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
                 >
                   <Trash2 size={18} />

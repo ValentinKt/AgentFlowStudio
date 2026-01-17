@@ -14,6 +14,8 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import SystemStatus from '../components/SystemStatus';
+import ToastContainer from '../components/ToastContainer';
+import GlobalSearch from '../components/GlobalSearch';
 import { useUserStore } from '../store/userStore';
 
 function cn(...inputs: ClassValue[]) {
@@ -37,6 +39,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
+      <ToastContainer />
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full">
         <div className="p-6 flex items-center gap-3">
@@ -89,6 +92,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             <p className="text-slate-500 text-sm mt-1">Manage your AI agents and workflows efficiently.</p>
           </div>
           <div className="flex items-center gap-6">
+            <GlobalSearch />
             <SystemStatus />
             <div className="flex -space-x-2">
               {[1, 2, 3].map((i) => (

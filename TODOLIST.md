@@ -18,4 +18,7 @@
 [x] Implement Visual Workflow Designer with draggable nodes
 [x] Implement Agent Task Assignment Panel with drag-and-drop
 [x] Enhance Settings with functional theme and preference persistence
+[x] Implement Global Notification (Toast) system
+[x] Add Global Command Search (⌘K) for quick navigation
+[x] Implement Workflow Export/Import functionality for portability
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)

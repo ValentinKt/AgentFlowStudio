@@ -17,9 +17,17 @@ import Mermaid from '../components/Mermaid';
 import VoiceInput from '../components/VoiceInput';
 import ImageUpload from '../components/ImageUpload';
 import { formatDistanceToNow } from 'date-fns';
+import { useNotificationStore } from '../store/notificationStore';
+
+const PROMPT_TEMPLATES = [
+  { id: '1', name: 'Software Dev', text: 'Build a React frontend with a Supabase backend and implement user authentication.' },
+  { id: '2', name: 'Market Research', text: 'Analyze the current trends in AI agents and generate a comprehensive market report.' },
+  { id: '3', name: 'Bug Hunt', text: 'Audit the existing codebase for security vulnerabilities and suggest patches.' },
+];
 
 const Analyzer: React.FC = () => {
   const { globalPrompt, decomposition, history, isLoading, setGlobalPrompt, decomposePrompt, fetchHistory } = usePromptStore();
+  const { addNotification } = useNotificationStore();
   const [viewMode, setViewMode] = useState<'visual' | 'table'>('visual');
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -30,7 +38,12 @@ const Analyzer: React.FC = () => {
 
   const handleDecompose = async () => {
     if (!globalPrompt.trim() && !selectedImage) return;
-    await decomposePrompt();
+    try {
+      await decomposePrompt();
+      addNotification('success', 'Prompt successfully decomposed into sub-tasks.');
+    } catch (err) {
+      addNotification('error', 'Failed to analyze prompt. Please check your Ollama connection.');
+    }
   };
 
   const loadFromHistory = (item: { global_prompt: string; decomposition: Array<{ id: string; task: string; agent_role: string; dependencies: string[] }> }) => {
@@ -71,10 +84,25 @@ const Analyzer: React.FC = () => {
               <Sparkles size={20} />
               <h3 className="text-lg font-bold text-slate-800">Global Prompt Analysis</h3>
             </div>
-            <ImageUpload 
-              selectedImage={selectedImage}
-              onImageSelect={setSelectedImage}
-            />
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Templates:</span>
+                {PROMPT_TEMPLATES.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setGlobalPrompt(t.text)}
+                    className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-teal-50 hover:text-teal-600 transition-all border border-transparent hover:border-teal-100"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+              <div className="w-px h-4 bg-slate-100 mx-1" />
+              <ImageUpload 
+                selectedImage={selectedImage}
+                onImageSelect={setSelectedImage}
+              />
+            </div>
           </div>
           <div className="relative">
             <textarea
