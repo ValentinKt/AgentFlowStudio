@@ -8,8 +8,7 @@ import {
   Moon, 
   Shield, 
   Save,
-  Terminal,
-  ExternalLink
+  Terminal
 } from 'lucide-react';
 
 const Settings: React.FC = () => {
@@ -28,7 +27,7 @@ const Settings: React.FC = () => {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as 'profile' | 'api' | 'system')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-teal-50 text-teal-600 shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
           >
             <tab.icon size={18} />

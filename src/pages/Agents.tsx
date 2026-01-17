@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
   Search, 
-  MoreVertical, 
   Shield, 
   Zap, 
   Cpu, 
@@ -16,7 +15,7 @@ import {
 import { useAgentStore } from '../store/agentStore';
 import { AgentRole } from '../types';
 
-const roleIcons: Record<AgentRole, any> = {
+const roleIcons: Record<AgentRole, React.ElementType> = {
   global_manager: Shield,
   prompter: FileText,
   developer: Cpu,
@@ -35,7 +34,7 @@ const roleColors: Record<AgentRole, string> = {
 };
 
 const Agents: React.FC = () => {
-  const { agents, isLoading, fetchAgents, addAgent, toggleAgentStatus, deleteAgent } = useAgentStore();
+  const { agents, fetchAgents, addAgent, toggleAgentStatus, deleteAgent } = useAgentStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [newAgent, setNewAgent] = useState({

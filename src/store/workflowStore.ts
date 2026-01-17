@@ -11,11 +11,11 @@ interface WorkflowState {
   createWorkflow: (workflow: Omit<Workflow, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<void>;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
-  executeWorkflow: (workflowId: string, parameters: Record<string, any>) => Promise<void>;
+  executeWorkflow: (workflowId: string, parameters: Record<string, unknown>) => Promise<void>;
   fetchExecutions: (workflowId: string) => Promise<void>;
 }
 
-export const useWorkflowStore = create<WorkflowState>((set, get) => ({
+export const useWorkflowStore = create<WorkflowState>((set) => ({
   workflows: [],
   executions: [],
   isLoading: false,
@@ -31,8 +31,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       if (error) throw error;
       set({ workflows: data as Workflow[], isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -50,8 +51,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       if (error) throw error;
       set((state) => ({ workflows: [data as Workflow, ...state.workflows], isLoading: false }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -68,8 +70,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         workflows: state.workflows.map((w) => (w.id === id ? { ...w, ...updates, updated_at: new Date().toISOString() } : w)),
         isLoading: false,
       }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -82,8 +85,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         workflows: state.workflows.filter((w) => w.id !== id),
         isLoading: false,
       }));
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -112,7 +116,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
         for (const step of steps) {
           await new Promise(resolve => setTimeout(resolve, step.duration));
-          // In a real app, we would log these steps to a 'tasks' or 'logs' table
         }
 
         // Finalize execution
@@ -134,8 +137,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       };
 
       simulateSteps();
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -150,8 +154,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       if (error) throw error;
       set({ executions: data as Execution[], isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 }));

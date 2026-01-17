@@ -16,7 +16,7 @@ import { useWorkflowStore } from '../store/workflowStore';
 import { format } from 'date-fns';
 
 const Workflows: React.FC = () => {
-  const { workflows, isLoading, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow } = useWorkflowStore();
+  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow } = useWorkflowStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [newWorkflow, setNewWorkflow] = useState({

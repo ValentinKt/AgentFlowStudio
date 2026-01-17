@@ -28,7 +28,7 @@ const Analyzer: React.FC = () => {
     await decomposePrompt();
   };
 
-  const loadFromHistory = (item: any) => {
+  const loadFromHistory = (item: { global_prompt: string; decomposition: Array<{ id: string; task: string; agent_role: string; dependencies: string[] }> }) => {
     setGlobalPrompt(item.global_prompt);
     // Directly setting decomposition from history
     usePromptStore.setState({ decomposition: item.decomposition });
