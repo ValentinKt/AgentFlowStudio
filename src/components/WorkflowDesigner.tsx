@@ -492,7 +492,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 const target = nodes.find(n => n.id === edge.target);
                 if (!source || !target) return null;
                 
-                let x1, y1, x2, y2;
+                let x1: number, y1: number, x2: number, y2: number;
                 const nodeWidth = 224; // w-56 = 14rem = 224px
                 const nodeHeight = 140; // Approx height
 
