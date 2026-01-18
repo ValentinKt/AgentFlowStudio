@@ -75,13 +75,39 @@ const Workflows: React.FC = () => {
   }, [storeError, addNotification]);
 
   const handleCreateUltimateWorkflow = async () => {
-     // Ensure agents exist or use placeholders
-     const manager = agents.find(a => a.role === 'global_manager');
-     const prompter = agents.find(a => a.role === 'prompter');
-     const developer = agents.find(a => a.role === 'developer');
-     const ui = agents.find(a => a.role === 'ui_generator');
-     const promptManager = agents.find(a => a.role === 'prompt_manager');
-     const diagram = agents.find(a => a.role === 'diagram_generator');
+     // Seed agents if they don't exist
+     const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
+     const names = {
+       global_manager: 'Architect Prime',
+       prompter: 'Prompt Engineer',
+       developer: 'Full-Stack Dev',
+       ui_generator: 'UI Master',
+       prompt_manager: 'Context Guardian',
+       diagram_generator: 'System Visualizer'
+     };
+     
+     for (const role of roles) {
+       if (!agents.find(a => a.role === role)) {
+         await useAgentStore.getState().addAgent({
+           name: names[role as keyof typeof names],
+           role,
+           priority: role === 'global_manager' ? 10 : 5,
+           capabilities: ['Autonomous Execution', 'LLM reasoning'],
+           is_active: true
+         });
+       }
+     }
+     
+     // Re-fetch agents to get updated IDs
+     await fetchAgents();
+     const updatedAgents = useAgentStore.getState().agents;
+
+     const manager = updatedAgents.find(a => a.role === 'global_manager');
+     const prompter = updatedAgents.find(a => a.role === 'prompter');
+     const developer = updatedAgents.find(a => a.role === 'developer');
+     const ui = updatedAgents.find(a => a.role === 'ui_generator');
+     const promptManager = updatedAgents.find(a => a.role === 'prompt_manager');
+     const diagram = updatedAgents.find(a => a.role === 'diagram_generator');
 
      const workflowId = await createWorkflow({
        name: 'Ultimate App Creator AI',
@@ -119,7 +145,7 @@ const Workflows: React.FC = () => {
      });
 
      if (workflowId) {
-       addNotification('success', 'Complex App Creator workflow initialized in database!');
+       addNotification('success', 'Complex App Creator workflow initialized with required agents!');
      }
   };
 
