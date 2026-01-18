@@ -2,9 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tsconfigPaths from "vite-tsconfig-paths";
 import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import path from 'path';
 
 // https://vite.dev/config/
 export default defineConfig({
+  resolve: {
+    alias: {
+      'async_hooks': path.resolve(__dirname, 'src/mocks/async_hooks.js'),
+      'node:async_hooks': path.resolve(__dirname, 'src/mocks/async_hooks.js'),
+    },
+  },
   build: {
     sourcemap: 'hidden',
   },
@@ -18,6 +26,14 @@ export default defineConfig({
     ],
   },
   plugins: [
+    nodePolyfills({
+      include: ['events', 'path', 'util'],
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+    }),
     react({
       babel: {
         plugins: [
