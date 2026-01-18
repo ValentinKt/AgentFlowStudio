@@ -227,6 +227,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       set({ activeNodeId: null, isExecuting: false });
       get().fetchExecutions(workflowId);
+
+      // Check if it's the Ultimate App Creator workflow and if it has a local deployment node
+      if (workflow?.name === 'Ultimate App Creator AI') {
+        // Delay slightly to let the user see the completion
+        setTimeout(() => {
+          if (confirm('Workflow complete! Your application is ready at http://localhost:3000. Would you like to view the result?')) {
+            window.open('http://localhost:3000', '_blank');
+          }
+        }, 1000);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false, activeNodeId: null, isExecuting: false });

@@ -79,16 +79,17 @@ const Workflows: React.FC = () => {
 
   const handleCreateUltimateWorkflow = async () => {
      // Seed agents if they don't exist
-     const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator', 'prompt_retriever'];
-     const names = {
-       global_manager: 'Architect Prime',
-       prompter: 'Prompt Engineer',
-       developer: 'Full-Stack Dev',
-       ui_generator: 'UI Master',
-       prompt_manager: 'Context Guardian',
-       diagram_generator: 'System Visualizer',
-       prompt_retriever: 'Prompt Collector'
-     };
+    const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator', 'prompt_retriever', 'local_deployer'];
+    const names = {
+      global_manager: 'Architect Prime',
+      prompter: 'Prompt Engineer',
+      developer: 'Full-Stack Dev',
+      ui_generator: 'UI Master',
+      prompt_manager: 'Context Guardian',
+      diagram_generator: 'System Visualizer',
+      prompt_retriever: 'Prompt Collector',
+      local_deployer: 'Local Host Runner'
+    };
      
      for (const role of roles) {
        if (!agents.find(a => a.role === role)) {
@@ -112,59 +113,60 @@ const Workflows: React.FC = () => {
      const ui = updatedAgents.find(a => a.role === 'ui_generator');
      const promptManager = updatedAgents.find(a => a.role === 'prompt_manager');
      const diagram = updatedAgents.find(a => a.role === 'diagram_generator');
-     const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
+    const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
+    const localDeployer = updatedAgents.find(a => a.role === 'local_deployer');
 
-     const workflowId = await createWorkflow({
-       name: 'Ultimate App Creator AI',
-       description: 'End-to-end autonomous workflow to build and deploy applications from a single prompt.',
-       configuration: {
-         nodes: [
-           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
-           { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 200, config: { inputType: 'text' }, description: 'Detailed functional requirements and user stories.' },
-           { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 350, config: { inputType: 'text' }, description: 'Colors, logos, and visual style preferences.' },
-           { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 500, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
-           
-           { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 650, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured system prompt.' },
-           
-           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 800, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable developer tasks.' },
-           
-           { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 950, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
-           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 950, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
-           
-           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1100, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
-           
-           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1250, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
-           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1250, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
-           
-           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 1400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
-           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 900, y: 1400, agentId: developer?.id, description: 'Fix issues and bugs identified during the QA phase.' },
-           
-           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 400, y: 1550, config: { outputType: 'database' }, description: 'Deploy the application to Vercel production environment.' },
-           { id: 'n11', label: 'Slack Notification', type: 'output', x: 800, y: 1550, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and deployment.' }
-         ],
-         edges: [
-           { id: 'e1-i1', source: 'n1', target: 'i1' },
-           { id: 'ei1-i2', source: 'i1', target: 'i2' },
-           { id: 'ei2-i3', source: 'i2', target: 'i3' },
-           { id: 'ei3-prompt', source: 'i3', target: 'n_prompt' },
-           
-           { id: 'e-prompt-2', source: 'n_prompt', target: 'n2' },
-           
-           { id: 'e2-3', source: 'n2', target: 'n3' },
-           { id: 'e2-4', source: 'n2', target: 'n4' },
-           { id: 'e3-5', source: 'n3', target: 'n5' },
-           { id: 'e4-5', source: 'n4', target: 'n5' },
-           { id: 'e5-6', source: 'n5', target: 'n6' },
-           { id: 'e5-7', source: 'n5', target: 'n7' },
-           { id: 'e6-8', source: 'n6', target: 'n8' },
-           { id: 'e7-8', source: 'n7', target: 'n8' },
-           { id: 'e8-9', source: 'n8', target: 'n9', sourcePort: 'false' },
-           { id: 'e9-8', source: 'n9', target: 'n8' },
-           { id: 'e8-10', source: 'n8', target: 'n10', sourcePort: 'true' },
-           { id: 'e8-11', source: 'n8', target: 'n11', sourcePort: 'true' }
-         ]
-       }
-     });
+    const workflowId = await createWorkflow({
+      name: 'Ultimate App Creator AI',
+      description: 'End-to-end autonomous workflow to build and deploy applications locally from user inputs.',
+      configuration: {
+        nodes: [
+          { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
+          { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 200, config: { inputType: 'text' }, description: 'Detailed functional requirements and user stories.' },
+          { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 350, config: { inputType: 'text' }, description: 'Colors, logos, and visual style preferences.' },
+          { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 500, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
+          
+          { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 650, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured system prompt.' },
+          
+          { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 800, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable developer tasks.' },
+          
+          { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 950, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
+          { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 950, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
+          
+          { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1100, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
+          
+          { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1250, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
+          { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1250, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
+          
+          { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 1400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
+          { id: 'n9', label: 'Refine & Debug', type: 'action', x: 900, y: 1400, agentId: developer?.id, description: 'Fix issues and bugs identified during the QA phase.' },
+          
+          { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 1550, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
+          { id: 'n11', label: 'Slack Notification', type: 'output', x: 800, y: 1550, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful local build and deployment.' }
+        ],
+        edges: [
+          { id: 'e1-i1', source: 'n1', target: 'i1' },
+          { id: 'ei1-i2', source: 'i1', target: 'i2' },
+          { id: 'ei2-i3', source: 'i2', target: 'i3' },
+          { id: 'ei3-prompt', source: 'i3', target: 'n_prompt' },
+          
+          { id: 'e-prompt-2', source: 'n_prompt', target: 'n2' },
+          
+          { id: 'e2-3', source: 'n2', target: 'n3' },
+          { id: 'e2-4', source: 'n2', target: 'n4' },
+          { id: 'e3-5', source: 'n3', target: 'n5' },
+          { id: 'e4-5', source: 'n4', target: 'n5' },
+          { id: 'e5-6', source: 'n5', target: 'n6' },
+          { id: 'e5-7', source: 'n5', target: 'n7' },
+          { id: 'e6-8', source: 'n6', target: 'n8' },
+          { id: 'e7-8', source: 'n7', target: 'n8' },
+          { id: 'e8-9', source: 'n8', target: 'n9', sourcePort: 'false' },
+          { id: 'e9-8', source: 'n9', target: 'n8' },
+          { id: 'e8-10', source: 'n8', target: 'n10', sourcePort: 'true' },
+          { id: 'e8-11', source: 'n8', target: 'n11', sourcePort: 'true' }
+        ]
+      }
+    });
 
      if (workflowId) {
        addNotification('success', 'Complex App Creator workflow initialized with required agents!');
