@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Agent } from '../types';
+import { useUserStore } from './userStore';
 
 interface AgentState {
   agents: Agent[];
@@ -38,12 +39,12 @@ export const useAgentStore = create<AgentState>((set) => ({
   addAgent: async (agent) => {
     set({ isLoading: true, error: null });
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
+      const user = useUserStore.getState().user;
+      if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
         .from('agents')
-        .insert([{ ...agent, user_id: userData.user.id }])
+        .insert([{ ...agent, user_id: user.id }])
         .select()
         .single();
 

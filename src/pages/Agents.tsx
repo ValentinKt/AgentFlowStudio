@@ -16,6 +16,7 @@ import { useAgentStore } from '../store/agentStore';
 import { AgentRole } from '../types';
 import TaskAssignment from '../components/TaskAssignment';
 import PerformanceChart from '../components/PerformanceChart';
+import { useNotificationStore } from '../store/notificationStore';
 import { cn } from '../lib/utils';
 
 const roleIcons: Record<AgentRole, React.ElementType> = {
@@ -37,7 +38,8 @@ const roleColors: Record<AgentRole, string> = {
 };
 
 const Agents: React.FC = () => {
-  const { agents, fetchAgents, addAgent, toggleAgentStatus, deleteAgent } = useAgentStore();
+  const { agents, fetchAgents, addAgent, toggleAgentStatus, deleteAgent, error: storeError } = useAgentStore();
+  const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [newAgent, setNewAgent] = useState({
@@ -51,15 +53,26 @@ const Agents: React.FC = () => {
     fetchAgents();
   }, [fetchAgents]);
 
+  useEffect(() => {
+    if (storeError) {
+      addNotification('error', `Agent Store Error: ${storeError}`);
+    }
+  }, [storeError, addNotification]);
+
   const handleAddAgent = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addAgent({
-      ...newAgent,
-      is_active: true,
-      capabilities: newAgent.capabilities.filter(c => c.trim() !== ''),
-    });
-    setIsModalOpen(false);
-    setNewAgent({ name: '', role: 'prompter', priority: 5, capabilities: [] });
+    try {
+      await addAgent({
+        ...newAgent,
+        is_active: true,
+        capabilities: newAgent.capabilities.filter(c => c.trim() !== ''),
+      });
+      addNotification('success', `Agent "${newAgent.name}" created successfully.`);
+      setIsModalOpen(false);
+      setNewAgent({ name: '', role: 'prompter', priority: 5, capabilities: [] });
+    } catch (err) {
+      // Error is handled by store effect
+    }
   };
 
   const filteredAgents = agents.filter(agent => 

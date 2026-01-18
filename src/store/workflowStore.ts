@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Workflow, Execution } from '../types';
+import { useUserStore } from './userStore';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -40,12 +41,12 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   createWorkflow: async (workflow) => {
     set({ isLoading: true, error: null });
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
+      const user = useUserStore.getState().user;
+      if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
         .from('workflows')
-        .insert([{ ...workflow, user_id: userData.user.id }])
+        .insert([{ ...workflow, user_id: user.id }])
         .select()
         .single();
 

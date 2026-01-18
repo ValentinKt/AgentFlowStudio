@@ -24,7 +24,7 @@ export const useUserStore = create<UserState>((set, get) => ({
         // Mock user for local development if not logged in
         set({ 
           user: {
-            id: '1',
+            id: '00000000-0000-0000-0000-000000000000',
             email: 'valentin@example.com',
             name: 'Valentin',
             role: 'admin',

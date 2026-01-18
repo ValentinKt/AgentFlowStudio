@@ -19,7 +19,7 @@ import { useNotificationStore } from '../store/notificationStore';
 import { Download, Upload } from 'lucide-react';
 
 const Workflows: React.FC = () => {
-  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow } = useWorkflowStore();
+  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, error: storeError } = useWorkflowStore();
   const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null);
@@ -64,6 +64,37 @@ const Workflows: React.FC = () => {
     fetchWorkflows();
   }, [fetchWorkflows]);
 
+  useEffect(() => {
+    if (storeError) {
+      addNotification('error', `Workflow Store Error: ${storeError}`);
+    }
+  }, [storeError, addNotification]);
+
+  const handleCreateComplexWorkflow = async () => {
+    await createWorkflow({
+      name: 'Enterprise QA Pipeline',
+      configuration: {
+        nodes: [
+          { id: 'n1', label: 'GitHub PR Webhook', type: 'trigger', x: 50, y: 200, config: { triggerType: 'webhook' } },
+          { id: 'n2', label: 'Security Scan', type: 'action', x: 300, y: 200, description: 'Scan code for vulnerabilities' },
+          { id: 'n3', label: 'Passes Checks?', type: 'condition', x: 550, y: 200, config: { conditionTrue: 'Secure', conditionFalse: 'Vulnerable' } },
+          { id: 'n4', label: 'Deploy to Staging', type: 'action', x: 800, y: 100, description: 'Push to staging environment' },
+          { id: 'n5', label: 'Notify Security Team', type: 'action', x: 800, y: 350, description: 'Alert on security failure' },
+          { id: 'n6', label: 'Slack Status', type: 'output', x: 1100, y: 200, config: { outputType: 'slack' } }
+        ],
+        edges: [
+          { id: 'e1-2', source: 'n1', target: 'n2', sourcePort: 'default' },
+          { id: 'e2-3', source: 'n2', target: 'n3', sourcePort: 'default' },
+          { id: 'e3-4', source: 'n3', target: 'n4', sourcePort: 'true' },
+          { id: 'e3-5', source: 'n3', target: 'n5', sourcePort: 'false' },
+          { id: 'e4-6', source: 'n4', target: 'n6', sourcePort: 'default' },
+          { id: 'e5-6', source: 'n5', target: 'n6', sourcePort: 'default' }
+        ]
+      },
+    });
+    addNotification('success', 'Complex Enterprise QA Pipeline template created.');
+  };
+
   const handleCreateWorkflow = async (e: React.FormEvent) => {
     e.preventDefault();
     await createWorkflow({
@@ -105,6 +136,14 @@ const Workflows: React.FC = () => {
             <input type="file" accept=".json" onChange={handleImport} className="hidden" />
           </label>
           <button 
+            onClick={handleCreateComplexWorkflow}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 shadow-md shadow-amber-100 transition-all"
+            title="Create a complex workflow template"
+          >
+            <GitBranch size={18} />
+            Complex Template
+          </button>
+          <button 
             onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
           >
@@ -142,7 +181,7 @@ const Workflows: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1 text-teal-600 font-medium">
                     <Activity size={12} />
-                    3 steps configured
+                    {(workflow.configuration as any)?.nodes?.length || 0} steps configured
                   </div>
                 </div>
               </div>
