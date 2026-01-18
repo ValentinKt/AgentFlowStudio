@@ -26,6 +26,11 @@ const roleIcons: Record<AgentRole, React.ElementType> = {
   ui_generator: Layout,
   prompt_manager: Zap,
   diagram_generator: Share2,
+  trigger: Power,
+  evaluator: Shield,
+  output: Share2,
+  prompt_retriever: Search,
+  local_deployer: Cpu,
 };
 
 const roleColors: Record<AgentRole, string> = {
@@ -35,6 +40,11 @@ const roleColors: Record<AgentRole, string> = {
   ui_generator: 'text-teal-600 bg-teal-50',
   prompt_manager: 'text-purple-600 bg-purple-50',
   diagram_generator: 'text-emerald-600 bg-emerald-50',
+  trigger: 'text-rose-600 bg-rose-50',
+  evaluator: 'text-sky-600 bg-sky-50',
+  output: 'text-emerald-600 bg-emerald-50',
+  prompt_retriever: 'text-slate-600 bg-slate-50',
+  local_deployer: 'text-cyan-600 bg-cyan-50',
 };
 
 const Agents: React.FC = () => {

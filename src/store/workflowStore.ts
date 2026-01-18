@@ -5,6 +5,46 @@ import { useUserStore } from './userStore';
 import { useAgentStore } from './agentStore';
 import { ActionGraph, ConditionGraph, TriggerGraph, OutputGraph, InputGraph } from '../lib/graphFactory';
 
+const parseJsonValue = <T,>(value: unknown, fallback: T): T => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return value as T;
+};
+
+const normalizeWorkflowRow = (row: unknown): Workflow => {
+  const r = row as Record<string, unknown>;
+  const configuration = parseJsonValue<Record<string, unknown>>(r.configuration, {});
+  return { ...(r as unknown as Workflow), configuration };
+};
+
+const normalizeExecutionRow = (row: unknown): Execution => {
+  const r = row as Record<string, unknown>;
+  const parameters = parseJsonValue<Record<string, unknown>>(r.parameters, {});
+  return { ...(r as unknown as Execution), parameters };
+};
+
+type WorkflowNode = {
+  id: string;
+  type: string;
+  label?: string;
+  description?: string;
+  agentId?: string;
+  config?: Record<string, unknown>;
+};
+
+type WorkflowEdge = {
+  id: string;
+  source: string;
+  target: string;
+  sourcePort?: string;
+};
+
 interface WorkflowState {
   workflows: Workflow[];
   executions: Execution[];
@@ -41,7 +81,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const result = await db.query('SELECT * FROM workflows ORDER BY updated_at DESC');
-      set({ workflows: result.rows as Workflow[], isLoading: false });
+      const workflows = (result.rows as any[]).map(normalizeWorkflowRow);
+      set({ workflows, isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });
@@ -59,7 +100,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         [workflow.name, workflow.description || '', workflow.status || 'active', JSON.stringify(workflow.configuration || {}), user.id]
       );
 
-      const newWorkflow = result.rows[0] as Workflow;
+      const newWorkflow = normalizeWorkflowRow(result.rows[0]);
       set((state) => ({ workflows: [newWorkflow, ...state.workflows], isLoading: false }));
       return newWorkflow.id;
     } catch (err) {
@@ -75,13 +116,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const values = Object.values(updates);
       const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
       
-      await db.query(
-        `UPDATE workflows SET ${setClause}, updated_at = NOW() WHERE id = $1`,
+      const result = await db.query(
+        `UPDATE workflows SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
         [id, ...values.map(v => typeof v === 'object' ? JSON.stringify(v) : v)]
       );
 
+      const updatedWorkflow = result.rows[0] ? normalizeWorkflowRow(result.rows[0]) : undefined;
       set((state) => ({
-        workflows: state.workflows.map((w) => (w.id === id ? { ...w, ...updates, updated_at: new Date().toISOString() } : w)),
+        workflows: updatedWorkflow
+          ? state.workflows.map((w) => (w.id === id ? updatedWorkflow : w))
+          : state.workflows,
         isLoading: false,
       }));
     } catch (err) {
@@ -106,13 +150,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   executeWorkflow: async (workflowId, parameters) => {
     set({ isLoading: true, error: null, isExecuting: true });
+    let executionId: string | null = null;
     try {
       const result = await db.query(
         'INSERT INTO executions (workflow_id, status, parameters, started_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
         [workflowId, 'running', JSON.stringify(parameters)]
       );
 
-      const execution = result.rows[0] as Execution;
+      const execution = normalizeExecutionRow(result.rows[0]);
+      executionId = execution.id;
       set((state) => ({ executions: [execution, ...state.executions], isLoading: false }));
       
       const workflow = get().workflows.find(w => w.id === workflowId);
@@ -121,12 +167,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         return;
       }
 
-      const config = workflow.configuration as any;
-      const nodes = config.nodes || [];
-      const edges = config.edges || [];
+      const config = parseJsonValue<Record<string, unknown>>(workflow.configuration, {});
+      const nodes = parseJsonValue<WorkflowNode[]>(config['nodes'], []);
+      const edges = parseJsonValue<WorkflowEdge[]>(config['edges'], []);
+      if (useAgentStore.getState().agents.length === 0) {
+        await useAgentStore.getState().fetchAgents();
+      }
       const agents = useAgentStore.getState().agents;
 
-      const triggerNode = nodes.find((n: any) => n.type === 'trigger');
+      const triggerNode = nodes.find((n) => n.type === 'trigger');
       if (!triggerNode) {
         set({ isExecuting: false });
         return;
@@ -138,7 +187,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       while (currentNodeId) {
         set({ activeNodeId: currentNodeId });
-        const node = nodes.find((n: any) => n.id === currentNodeId);
+        const node = nodes.find((n) => n.id === currentNodeId);
         if (!node) break;
 
         const agent = agents.find(a => a.id === node.agentId);
@@ -167,12 +216,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         if (node.type === 'input') {
           // Pause execution and wait for user input
           const userInput = await new Promise((resolve) => {
+            const inputTypeRaw = node.config?.['inputType'];
+            const inputType =
+              inputTypeRaw === 'text' ||
+              inputTypeRaw === 'number' ||
+              inputTypeRaw === 'select' ||
+              inputTypeRaw === 'boolean'
+                ? inputTypeRaw
+                : 'text';
             set({
               pendingInput: {
                 nodeId: node.id,
                 label: node.label,
-                type: node.config?.inputType || 'text',
-                options: node.config?.options,
+                type: inputType,
+                options: Array.isArray(node.config?.['options']) ? (node.config?.['options'] as string[]) : undefined,
                 resolve
               }
             });
@@ -188,6 +245,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
 
         const lastMessage = graphResult.messages[graphResult.messages.length - 1];
+        currentContext = {
+          ...currentContext,
+          ...(graphResult.context || {}),
+          [`node:${node.id}:output`]: lastMessage,
+          lastOutput: lastMessage,
+        };
 
         // Record task with real result
         await db.query(
@@ -198,14 +261,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         visited.add(currentNodeId);
 
         // Find next node
-        const outgoingEdges = edges.filter((e: any) => e.source === currentNodeId);
+        const outgoingEdges = edges.filter((e) => e.source === currentNodeId);
         if (outgoingEdges.length === 0) break;
 
         let nextNodeId: string | undefined;
         if (node.type === 'condition') {
           const decision = graphResult.context?.decision;
           const choice = decision ? 'true' : 'false';
-          const edge = outgoingEdges.find((e: any) => e.sourcePort === choice) || outgoingEdges[0];
+          const edge = outgoingEdges.find((e) => e.sourcePort === choice) || outgoingEdges[0];
           nextNodeId = edge.target;
         } else {
           nextNodeId = outgoingEdges[0].target;
@@ -238,6 +301,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }, 1000);
       }
     } catch (err) {
+      if (executionId) {
+        try {
+          await db.query(
+            'UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2',
+            ['failed', executionId]
+          );
+        } catch (_err) {
+          void _err;
+        }
+      }
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false, activeNodeId: null, isExecuting: false });
     }
@@ -250,7 +323,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         'SELECT * FROM executions WHERE workflow_id = $1 ORDER BY created_at DESC',
         [workflowId]
       );
-      set({ executions: result.rows as Execution[], isLoading: false });
+      const executions = (result.rows as any[]).map(normalizeExecutionRow);
+      set({ executions, isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });

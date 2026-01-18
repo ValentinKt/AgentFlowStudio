@@ -4,7 +4,10 @@ import { ActionGraph } from "./graphFactory";
 
 // Model configuration
 export const OLLAMA_MODEL = "gemini-3-flash-preview";
-export const OLLAMA_BASE_URL = "http://localhost:11434";
+export const OLLAMA_BASE_URL =
+  typeof window === "undefined"
+    ? "http://localhost:11434"
+    : `${window.location.origin}/ollama`;
 
 /**
  * Initialize a LangChain Ollama chat model

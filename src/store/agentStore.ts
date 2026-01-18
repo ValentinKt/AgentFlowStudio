@@ -5,6 +5,32 @@ import { useUserStore } from './userStore';
 import { initializeOllamaAgent } from '../lib/ollama';
 import { ActionGraph } from '../lib/graphFactory';
 
+const parseJsonValue = <T,>(value: unknown, fallback: T): T => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return value as T;
+};
+
+const normalizeAgentRow = (row: unknown): Agent => {
+  const r = row as Record<string, unknown>;
+  const capabilities = parseJsonValue<string[]>(r.capabilities, []);
+  const performance = parseJsonValue<Record<string, unknown>>(r.performance, {});
+  const model_config = parseJsonValue<Record<string, unknown>>(r.model_config, {});
+
+  return {
+    ...(r as unknown as Agent),
+    capabilities,
+    performance,
+    model_config,
+  };
+};
+
 interface AgentState {
   agents: Agent[];
   agentGraphs: Record<string, ActionGraph>; // Store LangGraph instances
@@ -29,7 +55,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const result = await db.query('SELECT * FROM agents ORDER BY created_at DESC');
-      const agents = result.rows as Agent[];
+      const agents = (result.rows as unknown[]).map(normalizeAgentRow);
       
       // Initialize LangGraph instances for all active agents
       const agentGraphs: Record<string, ActionGraph> = {};
@@ -69,7 +95,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         ]
       );
 
-      const newAgent = result.rows[0] as Agent;
+      const newAgent = normalizeAgentRow(result.rows[0]);
       const newGraph = new ActionGraph(newAgent);
 
       if (!ollamaReady) {
@@ -94,13 +120,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const values = Object.values(updates);
       const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
       
-      await db.query(
-        `UPDATE agents SET ${setClause} WHERE id = $1`,
+      const result = await db.query(
+        `UPDATE agents SET ${setClause} WHERE id = $1 RETURNING *`,
         [id, ...values.map(v => typeof v === 'object' ? JSON.stringify(v) : v)]
       );
 
-      const updatedAgents = get().agents.map((a) => (a.id === id ? { ...a, ...updates } : a));
-      const updatedAgent = updatedAgents.find(a => a.id === id);
+      const updatedAgent = result.rows[0] ? normalizeAgentRow(result.rows[0]) : undefined;
+      const updatedAgents = updatedAgent
+        ? get().agents.map((a) => (a.id === id ? updatedAgent : a))
+        : get().agents;
       
       // Update the LangGraph instance if the agent exists and is active
       const updatedGraphs = { ...get().agentGraphs };

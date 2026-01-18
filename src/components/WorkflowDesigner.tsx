@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Plus, 
   Trash2, 
@@ -14,11 +16,12 @@ import {
   Link as LinkIcon,
   Columns,
   Rows,
-  Settings
+  Settings,
+  MessageSquare
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
 import { useWorkflowStore } from '../store/workflowStore';
-import { createAgentModel } from '../lib/ollama';
+import { ActionGraph, ConditionGraph, InputGraph, OutputGraph, TriggerGraph } from '../lib/graphFactory';
 
 interface Node {
   id: string;
@@ -55,6 +58,77 @@ interface WorkflowDesignerProps {
   onSave: (config: any) => void;
 }
 
+type FeedbackLog = {
+  id: string;
+  ts: number;
+  kind: 'info' | 'input' | 'output' | 'error';
+  nodeId?: string;
+  nodeLabel?: string;
+  agentName?: string;
+  content: string;
+};
+
+const formatTime = (ts: number) => {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+};
+
+const MarkdownView: React.FC<{ content: string }> = ({ content }) => {
+  return (
+    <div className="text-sm text-slate-700 leading-relaxed">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: (props) => <h1 {...props} className="text-base font-bold text-slate-900 mt-3 mb-1" />,
+          h2: (props) => <h2 {...props} className="text-sm font-bold text-slate-900 mt-3 mb-1" />,
+          h3: (props) => <h3 {...props} className="text-sm font-semibold text-slate-900 mt-3 mb-1" />,
+          p: (props) => <p {...props} className="my-2 whitespace-pre-wrap" />,
+          a: (props) => <a {...props} className="text-teal-700 hover:text-teal-800 underline underline-offset-2" />,
+          ul: (props) => <ul {...props} className="my-2 pl-5 list-disc space-y-1" />,
+          ol: (props) => <ol {...props} className="my-2 pl-5 list-decimal space-y-1" />,
+          li: (props) => <li {...props} className="leading-relaxed" />,
+          blockquote: (props) => (
+            <blockquote
+              {...props}
+              className="my-2 pl-3 border-l-2 border-teal-200 text-slate-600 bg-teal-50/40 rounded-r-lg"
+            />
+          ),
+          code: ({ className, children, ...props }) => {
+            const isBlock = typeof className === 'string' && className.includes('language-');
+            if (isBlock) {
+              return (
+                <code {...props} className="font-mono text-xs text-slate-100">
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code
+                {...props}
+                className="font-mono text-[12px] px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-800"
+              >
+                {children}
+              </code>
+            );
+          },
+          pre: (props) => (
+            <pre
+              {...props}
+              className="my-2 p-3 rounded-xl bg-slate-900 overflow-x-auto border border-slate-800 shadow-sm"
+            />
+          ),
+          hr: (props) => <hr {...props} className="my-3 border-slate-200" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
 const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, onSave }) => {
   const { agents, fetchAgents } = useAgentStore();
   const { activeNodeId: globalActiveNodeId, isExecuting: globalIsExecuting, pendingInput, provideInput } = useWorkflowStore();
@@ -78,10 +152,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('vertical');
   const [isSimulating, setIsSimulating] = useState(false);
   const [activeNodeIdLocal, setActiveNodeIdLocal] = useState<string | null>(null);
+  const [feedbackLogs, setFeedbackLogs] = useState<FeedbackLog[]>([]);
+  const feedbackEndRef = useRef<HTMLDivElement>(null);
   
   // Use global execution state if active, otherwise fallback to local simulation
   const effectiveActiveNodeId = globalIsExecuting ? globalActiveNodeId : activeNodeIdLocal;
   const effectiveIsExecuting = globalIsExecuting || isSimulating;
+  const shouldShowFeedbackPanel = effectiveIsExecuting || feedbackLogs.length > 0;
 
   const stopSimulationRef = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -89,6 +166,15 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  const appendFeedbackLog = (log: Omit<FeedbackLog, 'id' | 'ts'> & Partial<Pick<FeedbackLog, 'ts'>>) => {
+    const id = Math.random().toString(36).slice(2, 10);
+    const ts = typeof log.ts === 'number' ? log.ts : Date.now();
+    setFeedbackLogs((prev) => [...prev, { ...log, id, ts } as FeedbackLog]);
+    queueMicrotask(() => {
+      feedbackEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  };
 
   const handleZoom = (delta: number) => {
     setZoom(prevZoom => {
@@ -166,11 +252,20 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const runSimulation = async () => {
     if (effectiveIsExecuting) {
       stopSimulationRef.current = true;
+      if (isSimulating) {
+        appendFeedbackLog({ kind: 'info', content: 'Stop requested.' });
+      }
       return;
     }
 
     setIsSimulating(true);
     stopSimulationRef.current = false;
+    setFeedbackLogs([]);
+    appendFeedbackLog({ kind: 'info', content: `Workflow started: **${workflow.name}**` });
+
+    if (agents.length === 0) {
+      await fetchAgents();
+    }
     
     // Find the trigger node
     const triggerNode = nodes.find(n => n.type === 'trigger');
@@ -182,6 +277,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
     let currentNodeId: string | null = triggerNode.id;
     const visited = new Set<string>();
+    let currentContext: Record<string, unknown> = {};
 
     try {
       while (currentNodeId && !stopSimulationRef.current) {
@@ -190,11 +286,16 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         const currentNode = nodes.find(n => n.id === currentNodeId);
         if (!currentNode) break;
 
-        // Handle Input nodes during simulation
+        let graphResult: any = null;
+
         if (currentNode.type === 'input') {
+          appendFeedbackLog({
+            kind: 'input',
+            nodeId: currentNode.id,
+            nodeLabel: currentNode.label,
+            content: `Waiting for input: **${currentNode.label}**`,
+          });
           const userInput = await new Promise((resolve) => {
-            // We use the store's provideInput mechanism but we're in simulation mode
-            // We need to manually trigger the store's pendingInput state
             useWorkflowStore.setState({
               pendingInput: {
                 nodeId: currentNode.id,
@@ -206,22 +307,62 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             });
           });
           console.log(`Simulation input received for ${currentNode.label}:`, userInput);
-        } else if (currentNode.type === 'action' && currentNode.agentId) {
-          // Simulate agent thinking if it's an action node with an agent
-          try {
-            const agent = agents.find(a => a.id === currentNode.agentId);
-            const model = createAgentModel();
-            const prompt = `Simulate an action for agent "${agent?.name}" (Role: ${agent?.role}). Task: ${currentNode.label}. Keep it brief.`;
-            // We invoke the model but don't block the UI too long
-            (model as any).invoke(prompt).then((res: any) => {
-              console.log(`Agent ${agent?.name} response:`, res.content);
-            }).catch((e: any) => console.warn('Ollama simulation error:', e));
-          } catch (e) {
-            console.warn('Ollama not available, skipping real simulation.');
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          currentContext = { ...currentContext, [currentNode.label || currentNode.id]: userInput };
+          appendFeedbackLog({
+            kind: 'input',
+            nodeId: currentNode.id,
+            nodeLabel: currentNode.label,
+            content: `Input received for **${currentNode.label}**:\n\n\`\`\`\n${String(userInput)}\n\`\`\``,
+          });
         } else {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const agent = currentNode.agentId ? agents.find(a => a.id === currentNode.agentId) : undefined;
+          appendFeedbackLog({
+            kind: 'info',
+            nodeId: currentNode.id,
+            nodeLabel: currentNode.label,
+            agentName: agent?.name,
+            content: `Running **${currentNode.type}**: **${currentNode.label}**${agent?.name ? ` (Agent: **${agent.name}**)` : ''}`,
+          });
+          const graph =
+            currentNode.type === 'trigger'
+              ? new TriggerGraph(agent || { name: 'System Trigger', role: 'trigger' as any })
+              : currentNode.type === 'condition'
+                ? new ConditionGraph(agent || { name: 'System Evaluator', role: 'evaluator' as any })
+                : currentNode.type === 'output'
+                  ? new OutputGraph(agent || { name: 'System Output', role: 'output' as any })
+                  : new ActionGraph(agent || { name: 'System Agent', role: 'developer' as any });
+
+          try {
+            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext);
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            appendFeedbackLog({
+              kind: 'error',
+              nodeId: currentNode.id,
+              nodeLabel: currentNode.label,
+              agentName: agent?.name,
+              content: `Error while running **${currentNode.label}**:\n\n\`\`\`\n${message}\n\`\`\``,
+            });
+            break;
+          }
+          const lastMessage = graphResult.messages?.[graphResult.messages.length - 1];
+          const lastMessageText =
+            typeof lastMessage === 'string' ? lastMessage : JSON.stringify(lastMessage, null, 2);
+
+          console.log(`Agent ${agent?.name || 'System'} output:`, lastMessage);
+          currentContext = {
+            ...currentContext,
+            ...(graphResult.context || {}),
+            [`node:${currentNode.id}:output`]: lastMessage,
+            lastOutput: lastMessage,
+          };
+          appendFeedbackLog({
+            kind: 'output',
+            nodeId: currentNode.id,
+            nodeLabel: currentNode.label,
+            agentName: agent?.name,
+            content: lastMessageText || '_No output_',
+          });
         }
 
         if (stopSimulationRef.current) break;
@@ -234,9 +375,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         let nextNodeId: string | undefined;
 
         if (currentNode.type === 'condition') {
-          const choice = Math.random() > 0.5 ? 'true' : 'false';
+          const decision = Boolean(graphResult?.context?.decision);
+          const choice = decision ? 'true' : 'false';
           const edge = outgoingEdges.find(e => e.sourcePort === choice) || outgoingEdges[0];
-          nextNodeId = edge.target;
+          nextNodeId = edge?.target;
         } else {
           nextNodeId = outgoingEdges[0].target;
         }
@@ -246,13 +388,20 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         } else {
           currentNodeId = null;
         }
+
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
     } finally {
+      const wasStopped = stopSimulationRef.current;
       setActiveNodeIdLocal(null);
       setIsSimulating(false);
       stopSimulationRef.current = false;
       // Clear pending input if we stop
       useWorkflowStore.setState({ pendingInput: null });
+      appendFeedbackLog({
+        kind: 'info',
+        content: wasStopped ? 'Workflow stopped.' : 'Workflow finished.',
+      });
     }
   };
 
@@ -715,6 +864,98 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             setLinkingSource(null);
           }}
         >
+          {shouldShowFeedbackPanel && (
+            <div
+              className="absolute top-6 bottom-6 left-6 w-[380px] z-30"
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseMove={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="h-full bg-white/90 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+                <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-teal-50/80 to-white">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-sm">
+                        <MessageSquare size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-black text-slate-900 tracking-wide uppercase truncate">
+                            Live Feedback
+                          </p>
+                          {effectiveIsExecuting ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-teal-600" />
+                              Running
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                              Finished
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {workflow.name}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 bg-white/70 border border-slate-200 rounded-full px-2 py-1">
+                      {feedbackLogs.length} logs
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+                  {feedbackLogs.length === 0 ? (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center">
+                      <p className="text-xs font-bold text-slate-700">Waiting for feedback…</p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Agent outputs and user inputs will appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    feedbackLogs.map((log) => {
+                      const badge =
+                        log.kind === 'error'
+                          ? 'bg-red-50 text-red-700 border-red-100'
+                          : log.kind === 'output'
+                            ? 'bg-teal-50 text-teal-700 border-teal-100'
+                            : log.kind === 'input'
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                              : 'bg-slate-50 text-slate-700 border-slate-100';
+
+                      return (
+                        <div key={log.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge}`}>
+                                {log.kind.toUpperCase()}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-slate-700 truncate">
+                                  {log.nodeLabel || log.nodeId || 'Workflow'}
+                                  {log.agentName ? ` • ${log.agentName}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">
+                              {formatTime(log.ts)}
+                            </span>
+                          </div>
+                          <div className="px-3 py-2">
+                            <MarkdownView content={log.content} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={feedbackEndRef} />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Canvas Controls */}
           <div className="absolute bottom-6 right-6 flex items-center gap-2 z-20">
             <div className="flex items-center bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -784,7 +1025,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           </div>
 
           {/* Canvas Legend */}
-          <div className="absolute top-6 left-6 flex items-center gap-4 z-20">
+          <div className={`absolute top-6 flex items-center gap-4 z-20 ${shouldShowFeedbackPanel ? 'left-[416px]' : 'left-6'}`}>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 backdrop-blur-md rounded-full border border-slate-200 shadow-sm">
               <div className="w-2 h-2 bg-teal-500 rounded-full" />
               <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canvas Mode (Drag to Pan)</span>

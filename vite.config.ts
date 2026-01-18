@@ -13,6 +13,19 @@ export default defineConfig({
       'node:async_hooks': path.resolve(__dirname, 'src/mocks/async_hooks.js'),
     },
   },
+  server: {
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    },
+    proxy: {
+      '/ollama': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/ollama/, ''),
+      },
+    },
+  },
   build: {
     sourcemap: 'hidden',
   },
