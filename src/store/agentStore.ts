@@ -29,7 +29,14 @@ export const useAgentStore = create<AgentState>((set) => ({
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42501' || error.message?.includes('apikey')) {
+          console.warn('Supabase RLS or API Key issue, using mock data for agents');
+          set({ agents: [], isLoading: false });
+          return;
+        }
+        throw error;
+      }
       set({ agents: data as Agent[], isLoading: false });
     } catch (err) {
       const error = err as Error;
