@@ -43,7 +43,7 @@ export const createAgentGraph = (agent: Agent) => {
   const processNode = async (state: typeof AgentState.State) => {
     const model = createAgentModel();
     const prompt = `You are a ${state.agentRole}. Your current task is: ${state.currentTask}`;
-    const response = await model.invoke(prompt);
+    const response = await (model as any).invoke(prompt);
     
     return {
       messages: [response.content as string],
@@ -57,6 +57,44 @@ export const createAgentGraph = (agent: Agent) => {
     .addEdge("process", END);
 
   return workflow.compile();
+};
+
+/**
+ * Ollama Service for prompt analysis and decomposition
+ */
+export const ollamaService = {
+  analyzePrompt: async (prompt: string) => {
+    try {
+      const model = createAgentModel();
+      const systemPrompt = `You are an AI System Architect. Your task is to decompose a global prompt into modular sub-tasks for a multi-agent system.
+      Return a JSON object with a "sub_tasks" array. Each sub-task must have:
+      - id (e.g., ST1, ST2)
+      - task (description)
+      - agent_role (one of: global_manager, prompter, developer, ui_generator, prompt_manager, diagram_generator)
+      - dependencies (array of ids of previous sub-tasks)`;
+
+      const response = await (model as any).invoke([
+        ["system", systemPrompt],
+        ["user", prompt]
+      ]);
+
+      try {
+        // Find JSON in the response if the model added extra text
+        const content = response.content as string;
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+        return JSON.parse(content);
+      } catch (e) {
+        console.error("Failed to parse Ollama JSON response:", e);
+        throw new Error("Invalid JSON format from Ollama");
+      }
+    } catch (error) {
+      console.error("Ollama analyzePrompt error:", error);
+      throw error;
+    }
+  }
 };
 
 /**
