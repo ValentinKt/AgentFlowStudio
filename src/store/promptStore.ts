@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import { ollamaService } from '../lib/ollama';
+import { useUserStore } from './userStore';
 
 interface SubTask {
   id: string;
@@ -87,38 +88,30 @@ export const usePromptStore = create<PromptState>((set, get) => ({
         }
       }
 
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user) {
-        await supabase.from('prompts').insert([
-          { 
-            global_prompt: globalPrompt, 
-            decomposition: decompositionResult,
-            user_id: userData.user.id
-          }
-        ]);
+      const user = useUserStore.getState().user;
+      if (user) {
+        await db.query(
+          'INSERT INTO prompts (global_prompt, decomposition, user_id) VALUES ($1, $2, $3)',
+          [globalPrompt, JSON.stringify(decompositionResult), user.id]
+        );
         get().fetchHistory();
       }
 
       set({ decomposition: decompositionResult, isLoading: false });
     } catch (err) {
-      const error = err as Error;
-      set({ error: error.message, isLoading: false });
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 
   fetchHistory: async () => {
+    set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('prompts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (error) throw error;
-      set({ history: data as PromptHistory[] });
+      const result = await db.query('SELECT * FROM prompts ORDER BY created_at DESC');
+      set({ history: result.rows as PromptHistory[], isLoading: false });
     } catch (err) {
-      const error = err as Error;
-      console.error('Error fetching prompt history:', error.message);
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      set({ error: message, isLoading: false });
     }
   },
 }));

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import { User } from '../types';
 
 interface UserState {
@@ -19,14 +19,17 @@ export const useUserStore = create<UserState>((set, get) => ({
   fetchUser: async () => {
     set({ isLoading: true });
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        // Mock user for local development if not logged in
+      // Since we use PGlite, we'll just get the first user for now
+      const result = await db.query('SELECT * FROM users LIMIT 1');
+      if (result.rows.length > 0) {
+        set({ user: result.rows[0] as User, isLoading: false });
+      } else {
+        // Fallback mock if db not ready
         set({ 
           user: {
             id: '00000000-0000-0000-0000-000000000000',
-            email: 'valentin@example.com',
-            name: 'Valentin',
+            email: 'admin@crewmanager.com',
+            name: 'Admin User',
             role: 'admin',
             preferences: {},
             created_at: new Date().toISOString(),
@@ -34,17 +37,7 @@ export const useUserStore = create<UserState>((set, get) => ({
           },
           isLoading: false 
         });
-        return;
       }
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
-
-      if (error) throw error;
-      set({ user: data as User, isLoading: false });
     } catch (error) {
       console.error('Error fetching user:', error);
       set({ isLoading: false });
@@ -57,12 +50,10 @@ export const useUserStore = create<UserState>((set, get) => ({
 
     try {
       const newPrefs = { ...user.preferences, ...prefs };
-      const { error } = await supabase
-        .from('users')
-        .update({ preferences: newPrefs })
-        .eq('id', user.id);
-
-      if (error) throw error;
+      await db.query(
+        'UPDATE users SET preferences = $1 WHERE id = $2',
+        [JSON.stringify(newPrefs), user.id]
+      );
       set({ user: { ...user, preferences: newPrefs } });
     } catch (error) {
       console.error('Error updating preferences:', error);

@@ -19,6 +19,8 @@ export interface Agent {
 export interface Workflow {
   id: string;
   name: string;
+  description?: string;
+  status?: string;
   configuration: Record<string, unknown>;
   user_id: string;
   created_at: string;

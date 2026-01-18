@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import { Workflow, Execution } from '../types';
 import { useUserStore } from './userStore';
 
@@ -9,14 +9,14 @@ interface WorkflowState {
   isLoading: boolean;
   error: string | null;
   fetchWorkflows: () => Promise<void>;
-  createWorkflow: (workflow: Omit<Workflow, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<void>;
+  createWorkflow: (workflow: Omit<Workflow, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<string | undefined>;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   executeWorkflow: (workflowId: string, parameters: Record<string, unknown>) => Promise<void>;
   fetchExecutions: (workflowId: string) => Promise<void>;
 }
 
-export const useWorkflowStore = create<WorkflowState>((set) => ({
+export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   workflows: [],
   executions: [],
   isLoading: false,
@@ -25,21 +25,8 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   fetchWorkflows: async () => {
     set({ isLoading: true, error: null });
     try {
-      const user = useUserStore.getState().user;
-      const { data, error } = await supabase
-        .from('workflows')
-        .select('*')
-        .order('updated_at', { ascending: false });
-
-      if (error) {
-        if (error.code === '42501' || error.message?.includes('apikey')) {
-          console.warn('Supabase RLS or API Key issue, using mock data for workflows');
-          set({ workflows: [], isLoading: false });
-          return;
-        }
-        throw error;
-      }
-      set({ workflows: data as Workflow[], isLoading: false });
+      const result = await db.query('SELECT * FROM workflows ORDER BY updated_at DESC');
+      set({ workflows: result.rows as Workflow[], isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });
@@ -52,14 +39,14 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
       const user = useUserStore.getState().user;
       if (!user) throw new Error('User not authenticated');
 
-      const { data, error } = await supabase
-        .from('workflows')
-        .insert([{ ...workflow, user_id: user.id }])
-        .select()
-        .single();
+      const result = await db.query(
+        'INSERT INTO workflows (name, description, status, configuration, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [workflow.name, workflow.description || '', workflow.status || 'active', JSON.stringify(workflow.configuration || {}), user.id]
+      );
 
-      if (error) throw error;
-      set((state) => ({ workflows: [data as Workflow, ...state.workflows], isLoading: false }));
+      const newWorkflow = result.rows[0] as Workflow;
+      set((state) => ({ workflows: [newWorkflow, ...state.workflows], isLoading: false }));
+      return newWorkflow.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });
@@ -69,12 +56,15 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   updateWorkflow: async (id, updates) => {
     set({ isLoading: true, error: null });
     try {
-      const { error } = await supabase
-        .from('workflows')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id);
+      const keys = Object.keys(updates);
+      const values = Object.values(updates);
+      const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
+      
+      await db.query(
+        `UPDATE workflows SET ${setClause}, updated_at = NOW() WHERE id = $1`,
+        [id, ...values.map(v => typeof v === 'object' ? JSON.stringify(v) : v)]
+      );
 
-      if (error) throw error;
       set((state) => ({
         workflows: state.workflows.map((w) => (w.id === id ? { ...w, ...updates, updated_at: new Date().toISOString() } : w)),
         isLoading: false,
@@ -88,8 +78,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   deleteWorkflow: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      const { error } = await supabase.from('workflows').delete().eq('id', id);
-      if (error) throw error;
+      await db.query('DELETE FROM workflows WHERE id = $1', [id]);
       set((state) => ({
         workflows: state.workflows.filter((w) => w.id !== id),
         isLoading: false,
@@ -103,49 +92,75 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   executeWorkflow: async (workflowId, parameters) => {
     set({ isLoading: true, error: null });
     try {
-      const { data: executionData, error: executionError } = await supabase
-        .from('executions')
-        .insert([{ workflow_id: workflowId, parameters, status: 'running', started_at: new Date().toISOString() }])
-        .select()
-        .single();
+      const result = await db.query(
+        'INSERT INTO executions (workflow_id, status, parameters, started_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
+        [workflowId, 'running', JSON.stringify(parameters)]
+      );
 
-      if (executionError) throw executionError;
-      
-      const execution = executionData as Execution;
+      const execution = result.rows[0] as Execution;
       set((state) => ({ executions: [execution, ...state.executions], isLoading: false }));
+      
+      // Start real execution engine
+      const workflow = get().workflows.find(w => w.id === workflowId);
+      if (!workflow || !workflow.configuration) return;
 
-      // Start background simulation
-      const simulateSteps = async () => {
-        const steps = [
-          { name: 'Task Decomposition', duration: 1500, output: 'Successfully decomposed global prompt into 5 sub-tasks.' },
-          { name: 'Agent Assignment', duration: 1000, output: 'Assigned specialized agents based on priority and capabilities.' },
-          { name: 'Parallel Execution', duration: 3000, output: 'Agents are processing sub-tasks in parallel via local Ollama instance.' },
-          { name: 'Result Synthesis', duration: 2000, output: 'Aggregating results and validating output consistency.' },
-        ];
+      const config = workflow.configuration as any;
+      const nodes = config.nodes || [];
+      const edges = config.edges || [];
 
-        for (const step of steps) {
-          await new Promise(resolve => setTimeout(resolve, step.duration));
+      // Find trigger
+      const triggerNode = nodes.find((n: any) => n.type === 'trigger');
+      if (!triggerNode) return;
+
+      let currentNodeId = triggerNode.id;
+      const visited = new Set<string>();
+
+      // Update execution status to running (already done in insert, but for clarity)
+      
+      while (currentNodeId) {
+        const node = nodes.find((n: any) => n.id === currentNodeId);
+        if (!node) break;
+
+        // Record task
+        await db.query(
+          'INSERT INTO tasks (execution_id, agent_id, description, status, parameters) VALUES ($1, $2, $3, $4, $5)',
+          [execution.id, node.agentId || null, node.label || node.description || 'Workflow step', 'completed', JSON.stringify(parameters)]
+        );
+
+        visited.add(currentNodeId);
+
+        // Find next node
+        const outgoingEdges = edges.filter((e: any) => e.source === currentNodeId);
+        if (outgoingEdges.length === 0) break;
+
+        let nextNodeId: string | undefined;
+        if (node.type === 'condition') {
+          // Randomly choose a path for now, or use parameters if we had real logic
+          const choice = Math.random() > 0.5 ? 'true' : 'false';
+          const edge = outgoingEdges.find((e: any) => e.sourcePort === choice) || outgoingEdges[0];
+          nextNodeId = edge.target;
+        } else {
+          nextNodeId = outgoingEdges[0].target;
         }
 
-        // Finalize execution
-        const { error: updateError } = await supabase
-          .from('executions')
-          .update({ 
-            status: 'completed', 
-            completed_at: new Date().toISOString(),
-          })
-          .eq('id', execution.id);
-
-        if (!updateError) {
-          set((state) => ({
-            executions: state.executions.map(e => 
-              e.id === execution.id ? { ...e, status: 'completed' as const, completed_at: new Date().toISOString() } : e
-            )
-          }));
+        if (nextNodeId && !visited.has(nextNodeId)) {
+          currentNodeId = nextNodeId;
+        } else {
+          currentNodeId = undefined;
         }
-      };
 
-      simulateSteps();
+        // Add small delay to simulate processing
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // Mark execution as completed
+      await db.query(
+        'UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2',
+        ['completed', execution.id]
+      );
+
+      // Refresh executions
+      get().fetchExecutions(workflowId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });
@@ -155,21 +170,11 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   fetchExecutions: async (workflowId) => {
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('executions')
-        .select('*')
-        .eq('workflow_id', workflowId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        if (error.code === '42501' || error.message?.includes('apikey')) {
-          console.warn('Supabase RLS or API Key issue, using mock data for executions');
-          set({ executions: [], isLoading: false });
-          return;
-        }
-        throw error;
-      }
-      set({ executions: data as Execution[], isLoading: false });
+      const result = await db.query(
+        'SELECT * FROM executions WHERE workflow_id = $1 ORDER BY created_at DESC',
+        [workflowId]
+      );
+      set({ executions: result.rows as Execution[], isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });

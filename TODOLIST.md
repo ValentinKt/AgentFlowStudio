@@ -29,5 +29,11 @@
 [x] Fix Vite 504 errors by optimizing LangChain dependencies
 [x] Resolve esbuild "Could not resolve @langchain/core" errors by installing the core package
 [x] Fix browser TypeError: undefined is not a constructor (AsyncLocalStorage) by adding mocks and polyfills
-[x] Launch and verify application functionality in the browser
+[x] Handle Supabase 401/42501 (Unauthorized/RLS) errors gracefully in stores to prevent app crashes
+[x] Remove Supabase dependency and replace with local PostgreSQL (PGLite)
+[x] Initialize PGLite schema for users, agents, workflows, executions, tasks, and prompts
+[x] Implement real workflow execution engine that records tasks in the database
+[x] Create "Ultimate App Creator AI" complex workflow configuration
+[x] Add "Seed Agents" functionality to quickly set up required agent roles
+[x] Launch and verify application functionality with PGLite backend
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)

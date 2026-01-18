@@ -93,13 +93,44 @@ const Agents: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
-        >
-          <Plus size={18} />
-          Create Agent
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              const roles: AgentRole[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
+              const names = {
+                global_manager: 'Architect Prime',
+                prompter: 'Prompt Engineer',
+                developer: 'Full-Stack Dev',
+                ui_generator: 'UI Master',
+                prompt_manager: 'Context Guardian',
+                diagram_generator: 'System Visualizer'
+              };
+              for (const role of roles) {
+                if (!agents.find(a => a.role === role)) {
+                  await addAgent({
+                    name: names[role as keyof typeof names],
+                    role,
+                    priority: role === 'global_manager' ? 10 : 5,
+                    capabilities: ['Autonomous Execution', 'LLM reasoning'],
+                    is_active: true
+                  });
+                }
+              }
+              addNotification('success', 'Essential agents seeded successfully.');
+            }}
+            className="flex items-center gap-2 bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-600 shadow-md shadow-indigo-100 transition-all"
+          >
+            <Zap size={18} />
+            Seed Agents
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
+          >
+            <Plus size={18} />
+            New Agent
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

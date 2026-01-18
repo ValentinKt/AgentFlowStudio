@@ -10,14 +10,15 @@ import {
   GitBranch,
   Calendar,
   ChevronRight,
-  Activity
+  Activity,
+  Download,
+  Upload
 } from 'lucide-react';
 import { useWorkflowStore } from '../store/workflowStore';
 import { useAgentStore } from '../store/agentStore';
 import { format } from 'date-fns';
 import WorkflowDesigner from '../components/WorkflowDesigner';
 import { useNotificationStore } from '../store/notificationStore';
-import { Download, Upload } from 'lucide-react';
 
 const Workflows: React.FC = () => {
   const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, error: storeError } = useWorkflowStore();
@@ -74,6 +75,7 @@ const Workflows: React.FC = () => {
   }, [storeError, addNotification]);
 
   const handleCreateUltimateWorkflow = async () => {
+     // Ensure agents exist or use placeholders
      const manager = agents.find(a => a.role === 'global_manager');
      const prompter = agents.find(a => a.role === 'prompter');
      const developer = agents.find(a => a.role === 'developer');
@@ -81,8 +83,9 @@ const Workflows: React.FC = () => {
      const promptManager = agents.find(a => a.role === 'prompt_manager');
      const diagram = agents.find(a => a.role === 'diagram_generator');
 
-     await createWorkflow({
+     const workflowId = await createWorkflow({
        name: 'Ultimate App Creator AI',
+       description: 'End-to-end autonomous workflow to build and deploy applications from a single prompt.',
        configuration: {
          nodes: [
            { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 50, y: 250, config: { triggerType: 'webhook' } },
@@ -98,26 +101,29 @@ const Workflows: React.FC = () => {
            { id: 'n11', label: 'Slack Notification', type: 'output', x: 1250, y: 350, config: { outputType: 'slack' }, description: 'Notify stakeholders of success.' }
          ],
          edges: [
-           { id: 'e1-2', source: 'n1', target: 'n2', sourcePort: 'default' },
-           { id: 'e2-3', source: 'n2', target: 'n3', sourcePort: 'default' },
-           { id: 'e2-4', source: 'n2', target: 'n4', sourcePort: 'default' },
-           { id: 'e3-5', source: 'n3', target: 'n5', sourcePort: 'default' },
-           { id: 'e4-5', source: 'n4', target: 'n5', sourcePort: 'default' },
-           { id: 'e5-6', source: 'n5', target: 'n6', sourcePort: 'default' },
-           { id: 'e5-7', source: 'n5', target: 'n7', sourcePort: 'default' },
-           { id: 'e6-8', source: 'n6', target: 'n8', sourcePort: 'default' },
-           { id: 'e7-8', source: 'n7', target: 'n8', sourcePort: 'default' },
+           { id: 'e1-2', source: 'n1', target: 'n2' },
+           { id: 'e2-3', source: 'n2', target: 'n3' },
+           { id: 'e2-4', source: 'n2', target: 'n4' },
+           { id: 'e3-5', source: 'n3', target: 'n5' },
+           { id: 'e4-5', source: 'n4', target: 'n5' },
+           { id: 'e5-6', source: 'n5', target: 'n6' },
+           { id: 'e5-7', source: 'n5', target: 'n7' },
+           { id: 'e6-8', source: 'n6', target: 'n8' },
+           { id: 'e7-8', source: 'n7', target: 'n8' },
            { id: 'e8-9', source: 'n8', target: 'n9', sourcePort: 'false' },
+           { id: 'e9-8', source: 'n9', target: 'n8' },
            { id: 'e8-10', source: 'n8', target: 'n10', sourcePort: 'true' },
-           { id: 'e9-8', source: 'n9', target: 'n8', sourcePort: 'default' },
-           { id: 'e10-11', source: 'n10', target: 'n11', sourcePort: 'default' }
+           { id: 'e8-11', source: 'n8', target: 'n11', sourcePort: 'true' }
          ]
-       },
+       }
      });
-     addNotification('success', 'Ultimate App Creator AI workflow created with all agents.');
-   };
 
-   const handleCreateComplexWorkflow = async () => {
+     if (workflowId) {
+       addNotification('success', 'Complex App Creator workflow initialized in database!');
+     }
+  };
+
+  const handleCreateComplexWorkflow = async () => {
     await createWorkflow({
       name: 'Enterprise QA Pipeline',
       configuration: {
@@ -294,67 +300,77 @@ const Workflows: React.FC = () => {
       </div>
 
       {/* New Workflow Modal */}
-      {selectedWorkflow && (
-        <WorkflowDesigner 
-          workflow={selectedWorkflow} 
-          onClose={() => setSelectedWorkflow(null)} 
-          onSave={handleSaveWorkflowConfig} 
-        />
-      )}
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
-          >
-            <div className="p-6 border-b border-slate-100">
-              <h3 className="text-xl font-bold text-slate-800">Create New Workflow</h3>
-              <p className="text-slate-500 text-sm">Design a new sequence for your AI agents.</p>
-            </div>
-            <form onSubmit={handleCreateWorkflow} className="p-6 space-y-4">
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Workflow Name</label>
-                <input
-                  required
-                  type="text"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                  value={newWorkflow.name}
-                  onChange={(e) => setNewWorkflow({ ...newWorkflow, name: e.target.value })}
-                  placeholder="e.g. Content Generation Pipeline"
-                />
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setIsModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <h2 className="text-2xl font-bold text-slate-800 mb-6">Create New Workflow</h2>
+                <form onSubmit={handleCreateWorkflow} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Workflow Name</label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                      placeholder="e.g. Code Review Pipeline"
+                      value={newWorkflow.name}
+                      onChange={(e) => setNewWorkflow({ ...newWorkflow, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Description</label>
+                    <textarea
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all min-h-[120px]"
+                      placeholder="What does this workflow automate?"
+                      value={newWorkflow.description}
+                      onChange={(e) => setNewWorkflow({ ...newWorkflow, description: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(false)}
+                      className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-3 bg-teal-500 text-white rounded-xl font-bold hover:bg-teal-600 shadow-lg shadow-teal-100 transition-all"
+                    >
+                      Create Workflow
+                    </button>
+                  </div>
+                </form>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Description</label>
-                <textarea
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all h-24 resize-none"
-                  value={newWorkflow.description}
-                  onChange={(e) => setNewWorkflow({ ...newWorkflow, description: e.target.value })}
-                  placeholder="Describe the purpose of this workflow..."
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
-                >
-                  Create Workflow
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
+      {/* Workflow Designer Overlay */}
+      <AnimatePresence>
+        {selectedWorkflow && (
+          <WorkflowDesigner
+            workflow={selectedWorkflow}
+            onClose={() => setSelectedWorkflow(null)}
+            onSave={handleSaveWorkflowConfig}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

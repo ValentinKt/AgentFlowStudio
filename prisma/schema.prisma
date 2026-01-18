@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  name          String
+  role          String     @default("user")
+  preferences   Json       @default("{}")
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @default(now())
+  agents        Agent[]
+  workflows     Workflow[]
+}
+
+model Agent {
+  id            String     @id @default(uuid())
+  name          String
+  role          String
+  capabilities  Json       @default("[]")
+  priority      Int        @default(5)
+  is_active     Boolean    @default(true)
+  performance   Json       @default("{}")
+  user_id       String
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at    DateTime   @default(now())
+  tasks         Task[]
+}
+
+model Workflow {
+  id            String      @id @default(uuid())
+  name          String
+  description   String?
+  status        String      @default("active")
+  configuration Json        @default("{}")
+  user_id       String
+  user          User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @default(now())
+  executions    Execution[]
+}
+
+model Execution {
+  id            String    @id @default(uuid())
+  workflow_id   String
+  workflow      Workflow  @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+  status        String    @default("pending")
+  parameters    Json      @default("{}")
+  started_at    DateTime?
+  completed_at  DateTime?
+  created_at    DateTime  @default(now())
+  tasks         Task[]
+}
+
+model Task {
+  id            String    @id @default(uuid())
+  execution_id  String
+  execution     Execution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+  agent_id      String?
+  agent         Agent?    @relation(fields: [agent_id], references: [id], onDelete: SetNull)
+  description   String
+  parameters    Json      @default("{}")
+  status        String    @default("pending")
+  result        Json?
+  created_at    DateTime  @default(now())
+}
