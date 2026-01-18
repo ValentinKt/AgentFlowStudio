@@ -61,13 +61,16 @@ export abstract class BaseWorkflowGraph {
    * Exécute le graphe avec une tâche donnée
    */
   async execute(task: string, context: Record<string, any> = {}) {
+    const agentName = this.agent.name || "Unknown Agent";
+    console.log(`\n🚀 [START EXECUTION] Agent: ${agentName}, Task: ${task}`);
+    
     // Check if Ollama is actually reachable before trying to execute
     let ollamaAvailable = false;
     try {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
       ollamaAvailable = response.ok;
     } catch (e) {
-      console.warn("Ollama is not reachable, using mock response for simulation.");
+      console.warn(`[DEBUG] Ollama is not reachable for ${agentName}, using mock response for simulation.`);
     }
 
     const app = this.buildGraph();
@@ -81,24 +84,29 @@ export abstract class BaseWorkflowGraph {
 
     if (!ollamaAvailable) {
       // Mock execution if Ollama is not running
+      console.log(`[SIMULATION] Mocking response for ${agentName}...`);
       await new Promise(resolve => setTimeout(resolve, 1500));
-      return {
-        messages: [`[MOCK] ${this.agent.name} (${this.agent.role}) a traité la tâche : ${task}`],
+      const mockResponse = {
+        messages: [`[MOCK] ${agentName} (${this.agent.role}) processed the task: ${task}`],
         currentTask: task,
         agentRole: this.agent.role,
-        context: { ...context, decision: Math.random() > 0.3 }, // Simulate some variety
+        context: { ...context, decision: Math.random() > 0.3 },
         status: "completed"
       };
+      console.log(`[SIMULATION] Finished ${agentName}.`);
+      return mockResponse;
     }
 
     try {
       const result = await app.invoke(initialState);
+      console.log(`🏁 [FINISH EXECUTION] Agent: ${agentName} completed successfully.`);
       return result;
     } catch (error) {
-      console.error(`Erreur d'exécution du graphe pour ${this.agent.name}:`, error);
+      console.error(`\n❌ [CRITICAL ERROR] Execution failed for ${agentName}:`, error);
       // Fallback to mock on error to allow the workflow to continue in development
+      console.log(`[FALLBACK] Continuing with simulation for ${agentName}...`);
       return {
-        messages: [`[FALLBACK] Error executing graph for ${this.agent.name}. Continuing with simulation.`],
+        messages: [`[FALLBACK] Error executing graph for ${agentName}. Continuing with simulation.`],
         currentTask: task,
         agentRole: this.agent.role,
         context: { ...context, decision: true },
@@ -111,11 +119,28 @@ export abstract class BaseWorkflowGraph {
    * Helper pour invoquer le modèle avec un prompt formaté
    */
   protected async invokeModel(systemPrompt: string, userPrompt: string) {
-    const response = await this.model.invoke([
-      ["system", systemPrompt],
-      ["user", userPrompt],
-    ]);
-    return response.content;
+    const agentName = this.agent.name || "Unknown Agent";
+    const agentRole = this.agent.role || "Unknown Role";
+    
+    console.log(`\n🤖 [AGENT CALL] ${agentName} (${agentRole})`);
+    console.log(`📥 INPUT PROMPT:\n--- SYSTEM ---\n${systemPrompt}\n--- USER ---\n${userPrompt}\n--------------`);
+    
+    const startTime = Date.now();
+    try {
+      const response = await this.model.invoke([
+        ["system", systemPrompt],
+        ["user", userPrompt],
+      ]);
+      const duration = Date.now() - startTime;
+      
+      console.log(`\n✅ [AGENT RESPONSE] ${agentName} (${duration}ms)`);
+      console.log(`📤 OUTPUT:\n${response.content}\n----------------\n`);
+      
+      return response.content;
+    } catch (error) {
+      console.error(`\n❌ [AGENT ERROR] ${agentName}:`, error);
+      throw error;
+    }
   }
 }
 
