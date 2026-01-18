@@ -42,10 +42,13 @@ export abstract class BaseWorkflowGraph {
 
   constructor(agent: Partial<Agent>) {
     this.agent = agent;
+    const modelConfig = agent.model_config || {};
     this.model = new ChatOllama({
       baseUrl: OLLAMA_BASE_URL,
-      model: OLLAMA_MODEL,
-      temperature: 0.7,
+      model: modelConfig.model_name || OLLAMA_MODEL,
+      temperature: modelConfig.temperature ?? 0.7,
+      topP: modelConfig.top_p,
+      numPredict: modelConfig.max_tokens,
     });
   }
 
@@ -122,7 +125,7 @@ export abstract class BaseWorkflowGraph {
 export class ActionGraph extends BaseWorkflowGraph {
   buildGraph() {
     const processNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `Tu es un expert avec le rôle : ${state.agentRole}. Ton nom est ${this.agent.name}.
+      const systemPrompt = this.agent.system_prompt || `Tu es un expert avec le rôle : ${state.agentRole}. Ton nom est ${this.agent.name}.
       Réalise la tâche suivante de manière professionnelle et concise.`;
       
       const content = await this.invokeModel(systemPrompt, state.currentTask);

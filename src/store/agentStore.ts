@@ -42,8 +42,17 @@ export const useAgentStore = create<AgentState>((set) => ({
       const ollamaReady = await initializeOllamaAgent(agent.name);
       
       const result = await db.query(
-        'INSERT INTO agents (name, role, capabilities, priority, is_active, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-        [agent.name, agent.role, JSON.stringify(agent.capabilities || []), agent.priority || 5, agent.is_active !== false, user.id]
+        'INSERT INTO agents (name, role, capabilities, priority, is_active, user_id, system_prompt, model_config) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        [
+          agent.name, 
+          agent.role, 
+          JSON.stringify(agent.capabilities || []), 
+          agent.priority || 5, 
+          agent.is_active !== false, 
+          user.id,
+          agent.system_prompt || '',
+          JSON.stringify(agent.model_config || {})
+        ]
       );
 
       const newAgent = result.rows[0] as Agent;

@@ -26,6 +26,8 @@ export const initSchema = async () => {
       priority INTEGER DEFAULT 5,
       is_active BOOLEAN DEFAULT true,
       performance JSONB DEFAULT '{}',
+      system_prompt TEXT,
+      model_config JSONB DEFAULT '{}',
       user_id UUID REFERENCES users(id) ON DELETE CASCADE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     );

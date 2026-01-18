@@ -9,10 +9,18 @@ export interface Agent {
   is_active: boolean;
   user_id: string;
   created_at: string;
+  system_prompt?: string;
+  model_config?: {
+    temperature?: number;
+    top_p?: number;
+    max_tokens?: number;
+    model_name?: string;
+  };
   performance?: {
-    success_rate: number;
-    tasks_completed: number;
-    avg_speed: number;
+    success_rate?: number;
+    tasks_completed?: number;
+    avg_speed?: number;
+    [key: string]: any;
   };
 }
 
