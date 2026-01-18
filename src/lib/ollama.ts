@@ -1,7 +1,6 @@
 import { ChatOllama } from "@langchain/ollama";
-import { StateGraph, END, START } from "@langchain/langgraph";
-import { Annotation } from "@langchain/langgraph";
 import { Agent } from "../types";
+import { ActionGraph } from "./graphFactory";
 
 // Model configuration
 export const OLLAMA_MODEL = "gemini-3-flash-preview";
@@ -19,44 +18,11 @@ export const createAgentModel = () => {
 };
 
 /**
- * Create a LangGraph for an agent
- * This sets up a basic execution graph for the agent's tasks
+ * Create a LangGraph for an agent using the new factory
  */
 export const createAgentGraph = (agent: Agent) => {
-  // Define the state for the graph
-  const AgentState = Annotation.Root({
-    messages: Annotation<string[]>({
-      reducer: (x, y) => x.concat(y),
-      default: () => [],
-    }),
-    currentTask: Annotation<string>({
-      reducer: (x, y) => y ?? x,
-      default: () => "",
-    }),
-    agentRole: Annotation<string>({
-      reducer: (x, y) => y ?? x,
-      default: () => agent.role,
-    }),
-  });
-
-  // Define a simple node that "processes" the task
-  const processNode = async (state: typeof AgentState.State) => {
-    const model = createAgentModel();
-    const prompt = `You are a ${state.agentRole}. Your current task is: ${state.currentTask}`;
-    const response = await (model as any).invoke(prompt);
-    
-    return {
-      messages: [response.content as string],
-    };
-  };
-
-  // Build the graph
-  const workflow = new StateGraph(AgentState)
-    .addNode("process", processNode)
-    .addEdge(START, "process")
-    .addEdge("process", END);
-
-  return workflow.compile();
+  const factory = new ActionGraph(agent);
+  return factory.buildGraph();
 };
 
 /**

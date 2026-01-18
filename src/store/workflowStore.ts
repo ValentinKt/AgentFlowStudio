@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { db } from '../lib/db';
 import { Workflow, Execution } from '../types';
 import { useUserStore } from './userStore';
+import { useAgentStore } from './agentStore';
+import { ActionGraph, ConditionGraph, TriggerGraph, OutputGraph } from '../lib/graphFactory';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -100,31 +102,51 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const execution = result.rows[0] as Execution;
       set((state) => ({ executions: [execution, ...state.executions], isLoading: false }));
       
-      // Start real execution engine
       const workflow = get().workflows.find(w => w.id === workflowId);
       if (!workflow || !workflow.configuration) return;
 
       const config = workflow.configuration as any;
       const nodes = config.nodes || [];
       const edges = config.edges || [];
+      const agents = useAgentStore.getState().agents;
 
-      // Find trigger
       const triggerNode = nodes.find((n: any) => n.type === 'trigger');
       if (!triggerNode) return;
 
       let currentNodeId = triggerNode.id;
       const visited = new Set<string>();
+      let currentContext = { ...parameters };
 
-      // Update execution status to running (already done in insert, but for clarity)
-      
       while (currentNodeId) {
         const node = nodes.find((n: any) => n.id === currentNodeId);
         if (!node) break;
 
-        // Record task
+        const agent = agents.find(a => a.id === node.agentId);
+        let graph;
+        
+        // Factory based on node type
+         switch (node.type) {
+           case 'trigger':
+             graph = new TriggerGraph(agent || { name: 'System Trigger', role: 'trigger' as any });
+             break;
+           case 'condition':
+             graph = new ConditionGraph(agent || { name: 'System Evaluator', role: 'evaluator' as any });
+             break;
+           case 'output':
+             graph = new OutputGraph(agent || { name: 'System Output', role: 'output' as any });
+             break;
+           default:
+             graph = new ActionGraph(agent || { name: 'System Agent', role: 'developer' as any });
+         }
+
+        // Execute the real LangGraph logic
+        const graphResult = await graph.execute(node.label || node.description || 'Task', currentContext);
+        const lastMessage = graphResult.messages[graphResult.messages.length - 1];
+
+        // Record task with real result
         await db.query(
-          'INSERT INTO tasks (execution_id, agent_id, description, status, parameters) VALUES ($1, $2, $3, $4, $5)',
-          [execution.id, node.agentId || null, node.label || node.description || 'Workflow step', 'completed', JSON.stringify(parameters)]
+          'INSERT INTO tasks (execution_id, agent_id, description, status, parameters, result) VALUES ($1, $2, $3, $4, $5, $6)',
+          [execution.id, node.agentId || null, node.label || node.description || 'Workflow step', 'completed', JSON.stringify(currentContext), JSON.stringify({ message: lastMessage })]
         );
 
         visited.add(currentNodeId);
@@ -135,8 +157,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
         let nextNodeId: string | undefined;
         if (node.type === 'condition') {
-          // Randomly choose a path for now, or use parameters if we had real logic
-          const choice = Math.random() > 0.5 ? 'true' : 'false';
+          const decision = graphResult.context?.decision;
+          const choice = decision ? 'true' : 'false';
           const edge = outgoingEdges.find((e: any) => e.sourcePort === choice) || outgoingEdges[0];
           nextNodeId = edge.target;
         } else {
@@ -149,17 +171,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           currentNodeId = undefined;
         }
 
-        // Add small delay to simulate processing
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Mark execution as completed
       await db.query(
         'UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2',
         ['completed', execution.id]
       );
 
-      // Refresh executions
       get().fetchExecutions(workflowId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
