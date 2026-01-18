@@ -13,6 +13,7 @@ import {
   Activity
 } from 'lucide-react';
 import { useWorkflowStore } from '../store/workflowStore';
+import { useAgentStore } from '../store/agentStore';
 import { format } from 'date-fns';
 import WorkflowDesigner from '../components/WorkflowDesigner';
 import { useNotificationStore } from '../store/notificationStore';
@@ -20,6 +21,7 @@ import { Download, Upload } from 'lucide-react';
 
 const Workflows: React.FC = () => {
   const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, error: storeError } = useWorkflowStore();
+  const { agents, fetchAgents } = useAgentStore();
   const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null);
@@ -62,7 +64,8 @@ const Workflows: React.FC = () => {
 
   useEffect(() => {
     fetchWorkflows();
-  }, [fetchWorkflows]);
+    fetchAgents();
+  }, [fetchWorkflows, fetchAgents]);
 
   useEffect(() => {
     if (storeError) {
@@ -70,7 +73,51 @@ const Workflows: React.FC = () => {
     }
   }, [storeError, addNotification]);
 
-  const handleCreateComplexWorkflow = async () => {
+  const handleCreateUltimateWorkflow = async () => {
+     const manager = agents.find(a => a.role === 'global_manager');
+     const prompter = agents.find(a => a.role === 'prompter');
+     const developer = agents.find(a => a.role === 'developer');
+     const ui = agents.find(a => a.role === 'ui_generator');
+     const promptManager = agents.find(a => a.role === 'prompt_manager');
+     const diagram = agents.find(a => a.role === 'diagram_generator');
+
+     await createWorkflow({
+       name: 'Ultimate App Creator AI',
+       configuration: {
+         nodes: [
+           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 50, y: 250, config: { triggerType: 'webhook' } },
+           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 250, y: 250, agentId: manager?.id, description: 'Decompose prompt into actionable tasks.' },
+           { id: 'n3', label: 'System Architecture', type: 'action', x: 450, y: 100, agentId: diagram?.id, description: 'Generate technical diagrams and schemas.' },
+           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 450, y: 400, agentId: promptManager?.id, description: 'Fetch relevant code patterns and documentation.' },
+           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 650, y: 250, agentId: prompter?.id, description: 'Optimize prompts for sub-agents.' },
+           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 850, y: 100, agentId: ui?.id, description: 'Generate Tailwind components and layout.' },
+           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 850, y: 400, agentId: developer?.id, description: 'Implement backend functions and database logic.' },
+           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 1050, y: 250, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
+           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 1050, y: 450, agentId: developer?.id, description: 'Fix issues identified during QA.' },
+           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 1250, y: 150, config: { outputType: 'database' }, description: 'Deploy the application to production.' },
+           { id: 'n11', label: 'Slack Notification', type: 'output', x: 1250, y: 350, config: { outputType: 'slack' }, description: 'Notify stakeholders of success.' }
+         ],
+         edges: [
+           { id: 'e1-2', source: 'n1', target: 'n2', sourcePort: 'default' },
+           { id: 'e2-3', source: 'n2', target: 'n3', sourcePort: 'default' },
+           { id: 'e2-4', source: 'n2', target: 'n4', sourcePort: 'default' },
+           { id: 'e3-5', source: 'n3', target: 'n5', sourcePort: 'default' },
+           { id: 'e4-5', source: 'n4', target: 'n5', sourcePort: 'default' },
+           { id: 'e5-6', source: 'n5', target: 'n6', sourcePort: 'default' },
+           { id: 'e5-7', source: 'n5', target: 'n7', sourcePort: 'default' },
+           { id: 'e6-8', source: 'n6', target: 'n8', sourcePort: 'default' },
+           { id: 'e7-8', source: 'n7', target: 'n8', sourcePort: 'default' },
+           { id: 'e8-9', source: 'n8', target: 'n9', sourcePort: 'false' },
+           { id: 'e8-10', source: 'n8', target: 'n10', sourcePort: 'true' },
+           { id: 'e9-8', source: 'n9', target: 'n8', sourcePort: 'default' },
+           { id: 'e10-11', source: 'n10', target: 'n11', sourcePort: 'default' }
+         ]
+       },
+     });
+     addNotification('success', 'Ultimate App Creator AI workflow created with all agents.');
+   };
+
+   const handleCreateComplexWorkflow = async () => {
     await createWorkflow({
       name: 'Enterprise QA Pipeline',
       configuration: {
@@ -135,6 +182,14 @@ const Workflows: React.FC = () => {
             Import Config
             <input type="file" accept=".json" onChange={handleImport} className="hidden" />
           </label>
+          <button 
+            onClick={handleCreateUltimateWorkflow}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 shadow-md shadow-indigo-100 transition-all"
+            title="Create the Ultimate App Creator AI workflow"
+          >
+            <Activity size={18} />
+            Ultimate Creator
+          </button>
           <button 
             onClick={handleCreateComplexWorkflow}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 shadow-md shadow-amber-100 transition-all"
