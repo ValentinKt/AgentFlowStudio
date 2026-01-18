@@ -16,6 +16,7 @@ import {
   Rows
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
+import { createAgentModel } from '../lib/ollama';
 
 interface Node {
   id: string;
@@ -150,6 +151,21 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         
         const currentNode = nodes.find(n => n.id === currentNodeId);
         if (!currentNode) break;
+
+        // Simulate agent thinking if it's an action node with an agent
+        if (currentNode.type === 'action' && currentNode.agentId) {
+          try {
+            const agent = agents.find(a => a.id === currentNode.agentId);
+            const model = createAgentModel();
+            const prompt = `Simulate an action for agent "${agent?.name}" (Role: ${agent?.role}). Task: ${currentNode.label}. Keep it brief.`;
+            // We invoke the model but don't block the UI too long
+            (model as any).invoke(prompt).then((res: any) => {
+              console.log(`Agent ${agent?.name} response:`, res.content);
+            }).catch((e: any) => console.warn('Ollama simulation error:', e));
+          } catch (e) {
+            console.warn('Ollama not available, skipping real simulation.');
+          }
+        }
 
         await new Promise(resolve => setTimeout(resolve, simulationSpeed));
         if (stopSimulationRef.current) break;

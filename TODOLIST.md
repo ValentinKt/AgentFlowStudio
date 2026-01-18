@@ -25,4 +25,5 @@
 [x] Fix syntax errors and linter warnings in WorkflowDesigner.tsx
 [x] Fix canvas panning trigger and implement layout-dependent node connectors
 [x] Implement and test workflow simulation in Visual Workflow Canvas
+[x] Integrate LangChain, LangGraph, and Ollama (gemini-3-flash-preview) into agent creation and simulation
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)

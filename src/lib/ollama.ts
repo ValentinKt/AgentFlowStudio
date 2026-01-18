@@ -1,43 +1,78 @@
-const OLLAMA_URL = 'http://localhost:11434/api';
+import { ChatOllama } from "@langchain/ollama";
+import { StateGraph, END, START } from "@langchain/langgraph";
+import { Annotation } from "@langchain/langgraph";
+import { Agent } from "../types";
 
-export const ollamaService = {
-  async generate(prompt: string, model = 'llama3') {
-    try {
-      const response = await fetch(`${OLLAMA_URL}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
-          format: 'json'
-        }),
-      });
+// Model configuration
+export const OLLAMA_MODEL = "gemini-3-flash-preview";
+export const OLLAMA_BASE_URL = "http://localhost:11434";
 
-      if (!response.ok) {
-        throw new Error(`Ollama API error: ${response.statusText}`);
-      }
+/**
+ * Initialize a LangChain Ollama chat model
+ */
+export const createAgentModel = () => {
+  return new ChatOllama({
+    baseUrl: OLLAMA_BASE_URL,
+    model: OLLAMA_MODEL,
+    temperature: 0.7,
+  });
+};
 
-      const data = await response.json();
-      return JSON.parse(data.response);
-    } catch (error) {
-      console.error('Ollama generation failed:', error);
-      throw error;
-    }
-  },
+/**
+ * Create a LangGraph for an agent
+ * This sets up a basic execution graph for the agent's tasks
+ */
+export const createAgentGraph = (agent: Agent) => {
+  // Define the state for the graph
+  const AgentState = Annotation.Root({
+    messages: Annotation<string[]>({
+      reducer: (x, y) => x.concat(y),
+      default: () => [],
+    }),
+    currentTask: Annotation<string>({
+      reducer: (x, y) => y ?? x,
+      default: () => "",
+    }),
+    agentRole: Annotation<string>({
+      reducer: (x, y) => y ?? x,
+      default: () => agent.role,
+    }),
+  });
 
-  async analyzePrompt(globalPrompt: string) {
-    const systemPrompt = `
-      You are an AI Orchestrator. Decompose the following global prompt into a list of structured sub-tasks.
-      Each sub-task must have:
-      - id: A short string ID (e.g., ST1, ST2)
-      - task: A concise description of the sub-task
-      - agent_role: One of ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator']
-      - dependencies: An array of IDs of tasks that must be completed before this one.
+  // Define a simple node that "processes" the task
+  const processNode = async (state: typeof AgentState.State) => {
+    const model = createAgentModel();
+    const prompt = `You are a ${state.agentRole}. Your current task is: ${state.currentTask}`;
+    const response = await model.invoke(prompt);
+    
+    return {
+      messages: [response.content as string],
+    };
+  };
 
-      Return ONLY a JSON array of objects.
-    `;
+  // Build the graph
+  const workflow = new StateGraph(AgentState)
+    .addNode("process", processNode)
+    .addEdge(START, "process")
+    .addEdge("process", END);
 
-    return this.generate(`${systemPrompt}\n\nGlobal Prompt: ${globalPrompt}`);
+  return workflow.compile();
+};
+
+/**
+ * Initialize agent in Ollama (pull model if needed)
+ * Note: In a real app, pulling might be too slow for a synchronous call
+ */
+export const initializeOllamaAgent = async (agentName: string) => {
+  console.log(`Initializing Ollama agent: ${agentName} with model ${OLLAMA_MODEL}`);
+  // We don't actually pull here to avoid blocking UI, 
+  // but we could verify if Ollama is reachable
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    if (!response.ok) throw new Error("Ollama not reachable");
+    return true;
+  } catch (error) {
+    console.warn("Ollama connection failed. Ensure Ollama is running locally.");
+    return false;
   }
 };

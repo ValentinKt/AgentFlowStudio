@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Agent } from '../types';
 import { useUserStore } from './userStore';
+import { initializeOllamaAgent } from '../lib/ollama';
 
 interface AgentState {
   agents: Agent[];
@@ -42,13 +43,25 @@ export const useAgentStore = create<AgentState>((set) => ({
       const user = useUserStore.getState().user;
       if (!user) throw new Error('User not authenticated');
 
+      // Initialize Ollama agent before adding to database
+      const ollamaReady = await initializeOllamaAgent(agent.name);
+      
       const { data, error } = await supabase
         .from('agents')
-        .insert([{ ...agent, user_id: user.id }])
+        .insert([{ 
+          ...agent, 
+          user_id: user.id,
+          // Store model info if needed, or just rely on global config
+        }])
         .select()
         .single();
 
       if (error) throw error;
+
+      if (!ollamaReady) {
+        console.warn('Agent added to DB, but Ollama initialization failed. Local execution may be unavailable.');
+      }
+
       set((state) => ({ agents: [data as Agent, ...state.agents], isLoading: false }));
     } catch (err) {
       const error = err as Error;
