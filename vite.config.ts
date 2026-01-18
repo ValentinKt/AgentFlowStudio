@@ -24,6 +24,7 @@ export default defineConfig({
       'langchain',
       'ollama'
     ],
+    exclude: ['@electric-sql/pglite']
   },
   plugins: [
     nodePolyfills({
