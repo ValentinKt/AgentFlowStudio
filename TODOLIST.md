@@ -23,4 +23,5 @@
 [x] Implement Workflow Export/Import functionality for portability
 [x] Implement canvas panning and node alignment in Visual Workflow Canvas
 [x] Fix syntax errors and linter warnings in WorkflowDesigner.tsx
+[x] Fix canvas panning trigger and implement layout-dependent node connectors
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)
