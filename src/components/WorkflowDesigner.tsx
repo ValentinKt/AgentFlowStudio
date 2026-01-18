@@ -607,7 +607,8 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         </motion.div>
       </div>
     </div>
-  );
+  </div>
+);
 };
 
 export default WorkflowDesigner;
