@@ -192,6 +192,38 @@ export class TriggerGraph extends BaseWorkflowGraph {
 }
 
 /**
+ * Implémentation spécifique pour les nœuds de type Input
+ */
+export class InputGraph extends BaseWorkflowGraph {
+  buildGraph() {
+    const inputNode = async (state: typeof BaseAgentState.State) => {
+      const userValue = state.context[state.currentTask];
+      
+      if (userValue !== undefined) {
+        return {
+          messages: [`L'utilisateur a fourni la valeur : ${userValue}`],
+          status: "completed",
+        };
+      }
+
+      const systemPrompt = `Tu es un collecteur d'informations. Prépare les données saisies par l'utilisateur pour le workflow.`;
+      const content = await this.invokeModel(systemPrompt, `Collecte de données : ${state.currentTask}`);
+      
+      return {
+        messages: [content as string],
+        status: "completed",
+      };
+    };
+
+    return new StateGraph(BaseAgentState)
+      .addNode("input", inputNode)
+      .addEdge(START, "input")
+      .addEdge("input", END)
+      .compile();
+  }
+}
+
+/**
  * Implémentation spécifique pour les nœuds de type Output
  */
 export class OutputGraph extends BaseWorkflowGraph {

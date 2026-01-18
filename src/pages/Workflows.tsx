@@ -79,14 +79,15 @@ const Workflows: React.FC = () => {
 
   const handleCreateUltimateWorkflow = async () => {
      // Seed agents if they don't exist
-     const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
+     const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator', 'prompt_retriever'];
      const names = {
        global_manager: 'Architect Prime',
        prompter: 'Prompt Engineer',
        developer: 'Full-Stack Dev',
        ui_generator: 'UI Master',
        prompt_manager: 'Context Guardian',
-       diagram_generator: 'System Visualizer'
+       diagram_generator: 'System Visualizer',
+       prompt_retriever: 'Prompt Collector'
      };
      
      for (const role of roles) {
@@ -111,26 +112,44 @@ const Workflows: React.FC = () => {
      const ui = updatedAgents.find(a => a.role === 'ui_generator');
      const promptManager = updatedAgents.find(a => a.role === 'prompt_manager');
      const diagram = updatedAgents.find(a => a.role === 'diagram_generator');
+     const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
 
      const workflowId = await createWorkflow({
        name: 'Ultimate App Creator AI',
        description: 'End-to-end autonomous workflow to build and deploy applications from a single prompt.',
        configuration: {
          nodes: [
-           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 50, y: 250, config: { triggerType: 'webhook' } },
-           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 250, y: 250, agentId: manager?.id, description: 'Decompose prompt into actionable tasks.' },
-           { id: 'n3', label: 'System Architecture', type: 'action', x: 450, y: 100, agentId: diagram?.id, description: 'Generate technical diagrams and schemas.' },
-           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 450, y: 400, agentId: promptManager?.id, description: 'Fetch relevant code patterns and documentation.' },
-           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 650, y: 250, agentId: prompter?.id, description: 'Optimize prompts for sub-agents.' },
-           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 850, y: 100, agentId: ui?.id, description: 'Generate Tailwind components and layout.' },
-           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 850, y: 400, agentId: developer?.id, description: 'Implement backend functions and database logic.' },
-           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 1050, y: 250, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
-           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 1050, y: 450, agentId: developer?.id, description: 'Fix issues identified during QA.' },
-           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 1250, y: 150, config: { outputType: 'database' }, description: 'Deploy the application to production.' },
-           { id: 'n11', label: 'Slack Notification', type: 'output', x: 1250, y: 350, config: { outputType: 'slack' }, description: 'Notify stakeholders of success.' }
+           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 100, y: 100, config: { triggerType: 'webhook' } },
+           { id: 'i1', label: 'Project Requirements', type: 'input', x: 100, y: 300, config: { inputType: 'text' }, description: 'Detailed functional requirements.' },
+           { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 100, y: 500, config: { inputType: 'text' }, description: 'Colors, logos, and style preferences.' },
+           { id: 'i3', label: 'Target Platform', type: 'input', x: 100, y: 700, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target.' },
+           
+           { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 350, y: 400, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured prompt.' },
+           
+           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 650, y: 400, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable tasks.' },
+           
+           { id: 'n3', label: 'System Architecture', type: 'action', x: 950, y: 200, agentId: diagram?.id, description: 'Generate technical diagrams and schemas.' },
+           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 950, y: 600, agentId: promptManager?.id, description: 'Fetch relevant code patterns and documentation.' },
+           
+           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 1250, y: 400, agentId: prompter?.id, description: 'Optimize prompts for sub-agents.' },
+           
+           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 1550, y: 200, agentId: ui?.id, description: 'Generate Tailwind components and layout.' },
+           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 1550, y: 600, agentId: developer?.id, description: 'Implement backend functions and database logic.' },
+           
+           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 1850, y: 400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
+           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 1850, y: 700, agentId: developer?.id, description: 'Fix issues identified during QA.' },
+           
+           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 2150, y: 300, config: { outputType: 'database' }, description: 'Deploy the application to production.' },
+           { id: 'n11', label: 'Slack Notification', type: 'output', x: 2150, y: 500, config: { outputType: 'slack' }, description: 'Notify stakeholders of success.' }
          ],
          edges: [
-           { id: 'e1-2', source: 'n1', target: 'n2' },
+           { id: 'e1-prompt', source: 'n1', target: 'n_prompt' },
+           { id: 'ei1-prompt', source: 'i1', target: 'n_prompt' },
+           { id: 'ei2-prompt', source: 'i2', target: 'n_prompt' },
+           { id: 'ei3-prompt', source: 'i3', target: 'n_prompt' },
+           
+           { id: 'e-prompt-2', source: 'n_prompt', target: 'n2' },
+           
            { id: 'e2-3', source: 'n2', target: 'n3' },
            { id: 'e2-4', source: 'n2', target: 'n4' },
            { id: 'e3-5', source: 'n3', target: 'n5' },

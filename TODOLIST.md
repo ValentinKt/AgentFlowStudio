@@ -35,5 +35,7 @@
 [x] Implement real workflow execution engine that records tasks in the database
 [x] Create "Ultimate App Creator AI" complex workflow configuration
 [x] Add "Seed Agents" functionality to quickly set up required agent roles
+[x] Implement Interactive Input Modal for user data collection during workflow execution
+[x] Synchronize global execution state with Visual Workflow Canvas for real-time tracking
 [x] Launch and verify application functionality with PGLite backend
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)

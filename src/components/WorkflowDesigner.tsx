@@ -16,12 +16,13 @@ import {
   Rows
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
+import { useWorkflowStore } from '../store/workflowStore';
 import { createAgentModel } from '../lib/ollama';
 
 interface Node {
   id: string;
   label: string;
-  type: 'trigger' | 'action' | 'condition' | 'output';
+  type: 'trigger' | 'action' | 'condition' | 'output' | 'input';
   x: number;
   y: number;
   agentId?: string;
@@ -31,6 +32,8 @@ interface Node {
     conditionFalse?: string;
     triggerType?: 'webhook' | 'schedule' | 'event';
     outputType?: 'email' | 'slack' | 'database';
+    inputType?: 'text' | 'number' | 'select' | 'boolean';
+    options?: string[]; // For select type
   };
 }
 
@@ -53,25 +56,59 @@ interface WorkflowDesignerProps {
 
 const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, onSave }) => {
   const { agents, fetchAgents } = useAgentStore();
+  const { activeNodeId: globalActiveNodeId, isExecuting: globalIsExecuting } = useWorkflowStore();
   const [nodes, setNodes] = useState<Node[]>(workflow.configuration?.nodes || [
-    { id: '1', label: 'Start Node', type: 'trigger', x: 50, y: 50 }
+    { id: '1', label: 'Start Node', type: 'trigger', x: 100, y: 100 }
   ]);
   const [edges, setEdges] = useState<Edge[]>(workflow.configuration?.edges || []);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(true);
+  const GRID_SIZE = 20;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [linkingSource, setLinkingSource] = useState<{ id: string, port: Edge['sourcePort'] } | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('vertical');
   const [isSimulating, setIsSimulating] = useState(false);
-  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
-  const [simulationSpeed, setSimulationSpeed] = useState(1500); // ms per step
+  const [activeNodeIdLocal, setActiveNodeIdLocal] = useState<string | null>(null);
+  
+  // Use global execution state if active, otherwise fallback to local simulation
+  const effectiveActiveNodeId = globalIsExecuting ? globalActiveNodeId : activeNodeIdLocal;
+  const effectiveIsExecuting = globalIsExecuting || isSimulating;
+
   const stopSimulationRef = useRef(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  const handleZoom = (delta: number) => {
+    setZoom(prevZoom => {
+      const newZoom = Math.min(Math.max(prevZoom + delta, 0.2), 3);
+      return newZoom;
+    });
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.001;
+      handleZoom(delta);
+    } else if (!isPanning) {
+      // Regular scroll for panning if not using ctrl/meta
+      setViewOffset(prev => ({
+        x: prev.x - e.deltaX,
+        y: prev.y - e.deltaY
+      }));
+    }
+  };
 
   const selectedNode = nodes.find(n => n.id === selectedNodeId);
 
@@ -147,7 +184,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
     try {
       while (currentNodeId && !stopSimulationRef.current) {
-        setActiveNodeId(currentNodeId);
+        setActiveNodeIdLocal(currentNodeId);
         
         const currentNode = nodes.find(n => n.id === currentNodeId);
         if (!currentNode) break;
@@ -167,7 +204,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           }
         }
 
-        await new Promise(resolve => setTimeout(resolve, simulationSpeed));
+        await new Promise(resolve => setTimeout(resolve, 1500));
         if (stopSimulationRef.current) break;
 
         visited.add(currentNodeId);
@@ -192,7 +229,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         }
       }
     } finally {
-      setActiveNodeId(null);
+      setActiveNodeIdLocal(null);
       setIsSimulating(false);
       stopSimulationRef.current = false;
     }
@@ -211,12 +248,22 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     const nodeLayers: { [id: string]: number } = {};
     const processedNodes = new Set<string>();
     
-    // Find roots
+    // Find roots (nodes with no incoming edges)
     let currentLayer = nodes.filter(n => !edges.find(e => e.target === n.id));
-    let layerIndex = 0;
+    
+    // If no roots (circular or empty edges), start with triggers
+    if (currentLayer.length === 0) {
+      currentLayer = nodes.filter(n => n.type === 'trigger');
+    }
+    
+    // If still no roots, just take the first node
+    if (currentLayer.length === 0) {
+      currentLayer = [nodes[0]];
+    }
 
+    let layerIndex = 0;
     while (currentLayer.length > 0) {
-      const nextLayer: Node[] = [];
+      const nextLayerIds = new Set<string>();
       currentLayer.forEach(node => {
         if (!processedNodes.has(node.id)) {
           nodeLayers[node.id] = layerIndex;
@@ -230,16 +277,16 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           
           children.forEach(child => {
             if (!processedNodes.has(child.id)) {
-              nextLayer.push(child);
+              nextLayerIds.add(child.id);
             }
           });
         }
       });
-      currentLayer = nextLayer;
+      currentLayer = nodes.filter(n => nextLayerIds.has(n.id));
       layerIndex++;
     }
 
-    // Handle orphaned nodes (cycles or isolated)
+    // Handle orphaned nodes
     nodes.forEach(node => {
       if (!processedNodes.has(node.id)) {
         nodeLayers[node.id] = layerIndex;
@@ -254,24 +301,29 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     });
 
     const HORIZONTAL_SPACING = 300;
-    const VERTICAL_SPACING = 150;
-    const START_X = 100;
+    const VERTICAL_SPACING = 200;
+    const CANVAS_CENTER_X = 600;
     const START_Y = 100;
 
     const newNodes = nodes.map(node => {
       const layer = nodeLayers[node.id] || 0;
-      const indexInLayer = layers[layer].indexOf(node.id);
+      const nodesInLayer = layers[layer];
+      const indexInLayer = nodesInLayer.indexOf(node.id);
+      const layerWidth = (nodesInLayer.length - 1) * HORIZONTAL_SPACING;
       
       if (direction === 'horizontal') {
+        // Horizontal: Layers go left to right, nodes in layer distributed vertically
+        const layerHeight = (nodesInLayer.length - 1) * VERTICAL_SPACING;
         return {
           ...node,
-          x: START_X + layer * HORIZONTAL_SPACING,
-          y: START_Y + indexInLayer * VERTICAL_SPACING
+          x: 100 + layer * HORIZONTAL_SPACING,
+          y: 300 + indexInLayer * VERTICAL_SPACING - layerHeight / 2
         };
       } else {
+        // Vertical: Layers go top to bottom, nodes in layer distributed horizontally
         return {
           ...node,
-          x: START_X + indexInLayer * HORIZONTAL_SPACING,
+          x: CANVAS_CENTER_X + indexInLayer * HORIZONTAL_SPACING - layerWidth / 2,
           y: START_Y + layer * VERTICAL_SPACING
         };
       }
@@ -281,29 +333,130 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Only pan if clicking on the background (not a node or button)
     const target = e.target as HTMLElement;
-    const isNode = target.closest('.workflow-node');
     const isButton = target.closest('button');
     const isPort = target.closest('.port-connector');
     
-    if (!isNode && !isButton && !isPort) {
+    if (isPort) return;
+    
+    const nodeElement = target.closest('.workflow-node') as HTMLElement;
+    if (nodeElement && !isButton) {
+      const id = nodeElement.dataset.id;
+      if (id) {
+        setDraggedNodeId(id);
+        setSelectedNodeId(id);
+        const node = nodes.find(n => n.id === id);
+        if (node) {
+          // Calculate offset in zoom-adjusted coordinates
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            const mouseX = (e.clientX - rect.left) / zoom;
+            const mouseY = (e.clientY - rect.top) / zoom;
+            setDragOffset({
+              x: mouseX - viewOffset.x - node.x,
+              y: mouseY - viewOffset.y - node.y
+            });
+          }
+        }
+      }
+      return;
+    }
+
+    if (!isButton) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - viewOffset.x, y: e.clientY - viewOffset.y });
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Mouse position relative to canvas, adjusted for zoom and pan
+    const x = (e.clientX - rect.left) / zoom - viewOffset.x;
+    const y = (e.clientY - rect.top) / zoom - viewOffset.y;
+    setMousePos({ x, y });
+
     if (isPanning) {
       setViewOffset({
         x: e.clientX - panStart.x,
         y: e.clientY - panStart.y
       });
     }
+
+    if (draggedNodeId) {
+      let newX = x - dragOffset.x;
+      let newY = y - dragOffset.y;
+
+      if (snapToGrid) {
+        newX = Math.round(newX / GRID_SIZE) * GRID_SIZE;
+        newY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
+      }
+
+      updateNode(draggedNodeId, { x: newX, y: newY });
+    }
   };
 
   const handleMouseUp = () => {
     setIsPanning(false);
+    setDraggedNodeId(null);
+    if (linkingSource) {
+      if (hoveredNodeId && hoveredNodeId !== linkingSource.id) {
+        completeLinking(hoveredNodeId);
+      }
+      setLinkingSource(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedNodeId && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+          deleteNode(selectedNodeId);
+        }
+      }
+      if (e.key === 'Escape') {
+        setSelectedNodeId(null);
+        setLinkingSource(null);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId, nodes, edges]);
+
+  const getGhostPath = () => {
+    if (!linkingSource) return '';
+    const source = nodes.find(n => n.id === linkingSource.id);
+    if (!source) return '';
+    const nodeWidth = 256; // w-64
+    const nodeHeight = 120; // Approx
+    let x1: number, y1: number;
+    
+    if (layoutDirection === 'horizontal') {
+      x1 = source.x + nodeWidth;
+      y1 = source.y + nodeHeight / 2;
+      if (source.type === 'condition') {
+        y1 = source.y + (linkingSource.port === 'true' ? nodeHeight * 0.3 : nodeHeight * 0.7);
+      }
+    } else {
+      x1 = source.x + nodeWidth / 2;
+      y1 = source.y + nodeHeight;
+      if (source.type === 'condition') {
+        x1 = source.x + (linkingSource.port === 'true' ? nodeWidth * 0.3 : nodeWidth * 0.7);
+      }
+    }
+    
+    const dx = layoutDirection === 'horizontal' ? Math.abs(x1 - mousePos.x) * 0.5 : 0;
+    const dy = layoutDirection === 'vertical' ? Math.abs(y1 - mousePos.y) * 0.5 : 0;
+    
+    return layoutDirection === 'horizontal' 
+      ? `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${mousePos.x - dx} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`
+      : `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${mousePos.x} ${mousePos.y - dy}, ${mousePos.x} ${mousePos.y}`;
   };
 
   return (
@@ -344,7 +497,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           <div>
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Step Library</h4>
             <div className="grid grid-cols-2 gap-2">
-              {(['trigger', 'action', 'condition', 'output'] as const).map((type) => (
+              {(['trigger', 'input', 'action', 'condition', 'output'] as const).map((type) => (
                 <button 
                   key={type}
                   onClick={() => addNode(type)}
@@ -352,11 +505,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                     type === 'trigger' ? 'bg-amber-50 text-amber-500' :
+                    type === 'input' ? 'bg-purple-50 text-purple-500' :
                     type === 'condition' ? 'bg-blue-50 text-blue-500' :
                     type === 'output' ? 'bg-emerald-50 text-emerald-500' :
                     'bg-teal-50 text-teal-500'
                   }`}>
                     {type === 'trigger' ? <Play size={14} /> : 
+                     type === 'input' ? <MousePointer2 size={14} /> : 
                      type === 'condition' ? <GitBranch size={14} /> : 
                      type === 'output' ? <Save size={14} /> : 
                      <Plus size={14} />}
@@ -433,6 +588,37 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                     </div>
                   )}
 
+                  {selectedNode.type === 'input' && (
+                    <div className="space-y-4 pt-2 border-t border-slate-100">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Input Type</label>
+                        <select 
+                          value={selectedNode.config?.inputType || 'text'}
+                          onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, inputType: e.target.value as any } })}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                        >
+                          <option value="text">Text Input</option>
+                          <option value="number">Number Input</option>
+                          <option value="boolean">Toggle / Checkbox</option>
+                          <option value="select">Dropdown Selection</option>
+                        </select>
+                      </div>
+
+                      {selectedNode.config?.inputType === 'select' && (
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Options (comma separated)</label>
+                          <input 
+                            type="text" 
+                            value={selectedNode.config?.options?.join(', ') || ''}
+                            onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, options: e.target.value.split(',').map(s => s.trim()) } })}
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                            placeholder="Option 1, Option 2, ..."
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {selectedNode.type === 'condition' && (
                     <div className="space-y-4 pt-2 border-t border-slate-100">
                       <div className="space-y-1.5">
@@ -493,11 +679,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
         {/* Canvas Area */}
         <div 
+          ref={canvasRef}
           className={`flex-1 bg-[#f8fafc] relative overflow-hidden pattern-dots cursor-crosshair ${isPanning ? 'cursor-grabbing' : ''}`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onWheel={handleWheel}
           onClick={() => {
             setSelectedNodeId(null);
             setLinkingSource(null);
@@ -505,6 +693,36 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         >
           {/* Canvas Controls */}
           <div className="absolute bottom-6 right-6 flex items-center gap-2 z-20">
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <button 
+                onClick={() => handleZoom(-0.1)}
+                className="p-2 text-slate-400 hover:text-teal-500 hover:bg-slate-50 transition-all border-r border-slate-100"
+                title="Zoom Out"
+              >
+                <Minimize2 size={16} />
+              </button>
+              <div className="px-3 text-[10px] font-bold text-slate-500 min-w-[3rem] text-center">
+                {Math.round(zoom * 100)}%
+              </div>
+              <button 
+                onClick={() => handleZoom(0.1)}
+                className="p-2 text-slate-400 hover:text-teal-500 hover:bg-slate-50 transition-all border-l border-slate-100"
+                title="Zoom In"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+
+            <div className="w-px h-6 bg-slate-100 mx-1" />
+
+            <button 
+              onClick={() => setSnapToGrid(!snapToGrid)}
+              className={`px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${snapToGrid ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
+              title="Snap to Grid"
+            >
+              Grid: {snapToGrid ? 'ON' : 'OFF'}
+            </button>
+
             <button 
               onClick={() => alignNodes('horizontal')}
               className={`flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
@@ -523,7 +741,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             </button>
             <div className="w-px h-6 bg-slate-100 mx-1" />
             <button 
-              onClick={() => setViewOffset({ x: 0, y: 0 })}
+              onClick={() => {
+                setViewOffset({ x: 0, y: 0 });
+                setZoom(1);
+              }}
               className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-teal-500 hover:border-teal-500 transition-all shadow-sm"
               title="Reset view"
             >
@@ -531,10 +752,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             </button>
             <button 
               onClick={runSimulation}
-              className={`p-3 rounded-xl shadow-lg transition-all active:scale-95 ml-2 ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-teal-500 hover:bg-teal-600'}`}
-              title={isSimulating ? "Stop Simulation" : "Run Workflow (Simulation)"}
+              className={`p-3 rounded-xl shadow-lg transition-all active:scale-95 ml-2 ${effectiveIsExecuting ? 'bg-red-500 hover:bg-red-600' : 'bg-teal-500 hover:bg-teal-600'}`}
+              title={effectiveIsExecuting ? "Stop Simulation" : "Run Workflow (Simulation)"}
             >
-              {isSimulating ? <X size={18} className="text-white" /> : <Play size={18} fill="currentColor" className="text-white" />}
+              {effectiveIsExecuting ? <X size={18} className="text-white" /> : <Play size={18} fill="currentColor" className="text-white" />}
             </button>
           </div>
 
@@ -557,8 +778,12 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           </div>
 
           <motion.div 
-            className="absolute inset-0 w-full h-full"
-            style={{ x: viewOffset.x, y: viewOffset.y }}
+            className="absolute inset-0 w-full h-full origin-top-left"
+            style={{ 
+              x: viewOffset.x * zoom, 
+              y: viewOffset.y * zoom,
+              scale: zoom
+            }}
           >
             <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible">
               <defs>
@@ -566,30 +791,42 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#14b8a6" />
                 </marker>
               </defs>
+              {/* Ghost Edge */}
+               {linkingSource && (
+                 <path
+                   d={getGhostPath()}
+                   fill="none"
+                   stroke="#14b8a6"
+                   strokeWidth="2"
+                   strokeDasharray="5 5"
+                   className="opacity-50 pointer-events-none"
+                 />
+               )}
+
               {edges.map(edge => {
                 const source = nodes.find(n => n.id === edge.source);
                 const target = nodes.find(n => n.id === edge.target);
                 if (!source || !target) return null;
                 
                 let x1: number, y1: number, x2: number, y2: number;
-                const nodeWidth = 224; // w-56 = 14rem = 224px
-                const nodeHeight = 140; // Approx height
+                const nodeWidth = 256; // w-64 = 16rem = 256px
+                const nodeHeight = 120; // Approx height
 
                 if (layoutDirection === 'horizontal') {
                   // Horizontal: Source right, Target left
                   x1 = source.x + nodeWidth;
-                  y1 = source.y + 50;
+                  y1 = source.y + nodeHeight / 2;
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      y1 = source.y + 40;
+                      y1 = source.y + nodeHeight * 0.3;
                     } else if (edge.sourcePort === 'false') {
-                      y1 = source.y + 80;
+                      y1 = source.y + nodeHeight * 0.7;
                     }
                   }
 
                   x2 = target.x;
-                  y2 = target.y + 50;
+                  y2 = target.y + nodeHeight / 2;
                 } else {
                   // Vertical: Source bottom, Target top
                   x1 = source.x + nodeWidth / 2;
@@ -597,9 +834,9 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      x1 = source.x + (nodeWidth / 3);
+                      x1 = source.x + nodeWidth * 0.3;
                     } else if (edge.sourcePort === 'false') {
-                      x1 = source.x + (2 * nodeWidth / 3);
+                      x1 = source.x + nodeWidth * 0.7;
                     }
                   }
 
@@ -615,19 +852,49 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   ? `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
                   : `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
 
+                const isConditionEdge = source.type === 'condition';
+                const isTrue = edge.sourcePort === 'true';
+                const isFalse = edge.sourcePort === 'false';
+                
+                let strokeColor = '#94a3b8'; // slate-400
+                if (isConditionEdge) {
+                  strokeColor = isTrue ? '#10b981' : isFalse ? '#ef4444' : '#94a3b8';
+                } else if (effectiveActiveNodeId === edge.source) {
+                  strokeColor = '#14b8a6'; // teal-500
+                }
+
                 return (
                   <g key={edge.id} className="pointer-events-auto cursor-pointer group" onClick={(e) => { e.stopPropagation(); deleteEdge(edge.id); }}>
+                    {/* Shadow/Glow for active edge */}
+                    {effectiveActiveNodeId === edge.source && (
+                      <path 
+                        d={path}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth="6"
+                        className="opacity-20 blur-sm"
+                      />
+                    )}
+                    
                     <path 
                       d={path}
                       fill="none"
-                stroke={activeNodeId === edge.source && activeNodeId === edge.target ? '#14b8a6' : edge.sourcePort === 'true' ? '#10b981' : edge.sourcePort === 'false' ? '#ef4444' : '#14b8a6'} 
-                strokeWidth={activeNodeId === edge.source ? "3" : "2"}
-                strokeDasharray={isSimulating && activeNodeId === edge.source ? "5 5" : edge.sourcePort ? "none" : "4 4"}
-                markerEnd="url(#arrow)"
-                className={`transition-all group-hover:stroke-red-400 group-hover:stroke-[3px] ${isSimulating && activeNodeId === edge.source ? 'animate-pulse' : ''}`}
-              />
-                    <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r="10" className="fill-white stroke-slate-200 opacity-0 group-hover:opacity-100" />
-                    <X size={10} x={(x1+x2)/2 - 5} y={(y1+y2)/2 - 5} className="text-red-400 opacity-0 group-hover:opacity-100" />
+                      stroke={strokeColor}
+                      strokeWidth={effectiveActiveNodeId === edge.source ? "3" : "2"}
+                      strokeDasharray={isConditionEdge ? "none" : "6 4"}
+                      markerEnd={isConditionEdge ? "" : "url(#arrow)"}
+                      className={`transition-all duration-300 group-hover:stroke-teal-400 group-hover:stroke-[3px] ${effectiveIsExecuting && effectiveActiveNodeId === edge.source ? 'animate-flow' : ''}`}
+                    />
+
+                    {/* Condition markers/labels if needed could go here */}
+                    
+                    <circle 
+                      cx={(x1+x2)/2} 
+                      cy={(y1+y2)/2} 
+                      r="12" 
+                      className="fill-white stroke-slate-200 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm" 
+                    />
+                    <X size={12} x={(x1+x2)/2 - 6} y={(y1+y2)/2 - 6} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </g>
                 );
               })}
@@ -636,46 +903,121 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             {nodes.map((node) => (
               <motion.div
                 key={node.id}
-                drag
-                dragMomentum={false}
-                onDrag={(_, info) => {
-                  updateNode(node.id, { x: node.x + info.delta.x, y: node.y + info.delta.y });
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (linkingSource) {
-                    completeLinking(node.id);
-                  } else {
-                    setSelectedNodeId(node.id);
-                  }
-                }}
-                className={`workflow-node absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
-                  activeNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/20 shadow-xl scale-110 z-20 bg-teal-50/10' :
-                  selectedNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/10 shadow-lg scale-105' : 
-                  linkingSource?.id === node.id ? 'border-amber-500 ring-4 ring-amber-500/10' :
-                  'border-slate-200 shadow-sm hover:border-teal-300'
+                data-id={node.id}
+                onMouseEnter={() => setHoveredNodeId(node.id)}
+                onMouseLeave={() => setHoveredNodeId(null)}
+                className={`workflow-node absolute z-10 w-64 bg-white p-6 rounded-2xl border-2 transition-all cursor-move group ${
+                  effectiveActiveNodeId === node.id ? 'border-teal-500 ring-8 ring-teal-500/10 shadow-2xl scale-105 z-20 bg-teal-50/5' :
+                  selectedNodeId === node.id ? 'border-teal-400 ring-4 ring-teal-100 shadow-xl' : 
+                  linkingSource?.id === node.id ? 'border-amber-400 ring-4 ring-amber-100' :
+                  'border-slate-100 shadow-lg hover:border-slate-200'
                 }`}
                 style={{ left: node.x, top: node.y }}
               >
-              <div className="flex items-center justify-between mb-3">
-                <div className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
-                  node.type === 'trigger' ? 'bg-amber-100 text-amber-700' :
-                  node.type === 'condition' ? 'bg-blue-100 text-blue-700' :
-                  node.type === 'output' ? 'bg-emerald-100 text-emerald-700' :
-                  'bg-teal-100 text-teal-700'
-                }`}>
-                  {node.type}
+                {/* Type Tag - Centered at top */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] shadow-sm border ${
+                    node.type === 'trigger' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                    node.type === 'input' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                    node.type === 'condition' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                    node.type === 'output' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                    'bg-teal-50 text-teal-600 border-teal-100'
+                  }`}>
+                    {node.type}
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  {node.type !== 'condition' && (
+
+                <div className="flex flex-col items-center text-center space-y-3 mt-2">
+                  <h4 className="text-sm font-black text-slate-800 leading-tight">{node.label}</h4>
+                  
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
+                    <User size={12} className={node.agentId ? 'text-teal-500' : 'text-slate-300'} />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                      {getAgentName(node.agentId)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Connection Ports - Top & Bottom for Vertical, Left & Right for Horizontal */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {/* Top Input Port */}
+                  {node.type !== 'trigger' && (
+                    <div className={`absolute left-1/2 -top-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${layoutDirection === 'vertical' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                      <div className="w-1.5 h-1.5 bg-teal-400 rounded-full" />
+                    </div>
+                  )}
+
+                  {/* Bottom Output Port */}
+                  {node.type !== 'output' && node.type !== 'condition' && (
                     <button 
-                      onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                      className={`port-connector p-1.5 rounded-md transition-all ${linkingSource?.id === node.id ? 'bg-amber-500 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-teal-500'}`}
-                      title="Link to another step"
+                      onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id); }}
+                      className={`port-connector pointer-events-auto absolute left-1/2 -bottom-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
                     >
-                      <LinkIcon size={12} />
+                      <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id ? 'bg-white' : 'bg-teal-400'}`} />
                     </button>
                   )}
+
+                  {/* Left Input Port */}
+                  {node.type !== 'trigger' && (
+                    <div className={`absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${layoutDirection === 'horizontal' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                      <div className="w-1.5 h-1.5 bg-teal-400 rounded-full" />
+                    </div>
+                  )}
+
+                  {/* Right Output Port */}
+                  {node.type !== 'output' && node.type !== 'condition' && (
+                    <button 
+                      onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id); }}
+                      className={`port-connector pointer-events-auto absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id ? 'bg-white' : 'bg-teal-400'}`} />
+                    </button>
+                  )}
+
+                  {/* Condition Ports */}
+                  {node.type === 'condition' && (
+                    <>
+                      {/* Vertical Condition Outputs */}
+                      <div className={`absolute -bottom-2 inset-x-0 flex justify-around px-8 transition-all ${layoutDirection === 'vertical' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
+                        <button 
+                          onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
+                          className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-emerald-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-400' : ''}`}
+                          title="True Path"
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-white' : 'bg-emerald-400'}`} />
+                        </button>
+                        <button 
+                          onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
+                          className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-red-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-400' : ''}`}
+                          title="False Path"
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-white' : 'bg-red-400'}`} />
+                        </button>
+                      </div>
+
+                      {/* Horizontal Condition Outputs */}
+                      <div className={`absolute -right-2 inset-y-0 flex flex-col justify-around py-4 transition-all ${layoutDirection === 'horizontal' ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-2 pointer-events-none'}`}>
+                        <button 
+                          onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
+                          className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-emerald-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-400' : ''}`}
+                          title="True Path"
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-white' : 'bg-emerald-400'}`} />
+                        </button>
+                        <button 
+                          onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
+                          className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-red-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-400' : ''}`}
+                          title="False Path"
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-white' : 'bg-red-400'}`} />
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Node Actions - Show on Hover */}
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
                     onClick={(e) => { e.stopPropagation(); deleteNode(node.id); }}
                     className="p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-md transition-all"
@@ -683,77 +1025,23 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                     <Trash2 size={12} />
                   </button>
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="text-sm font-bold text-slate-800 leading-tight">{node.label}</h4>
-                <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                  <User size={10} className="text-teal-500" />
-                  <span className="truncate font-medium">{getAgentName(node.agentId)}</span>
-                </div>
-              </div>
-
-              {/* Input Ports */}
-              {node.type !== 'trigger' && (
-                <>
-                  {/* Left Port */}
-                  <div className={`port-connector absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all ${layoutDirection === 'horizontal' ? 'border-teal-400 z-20 scale-110 shadow-sm shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'}`} />
-                  {/* Top Port */}
-                  <div className={`port-connector absolute left-1/2 -top-1.5 -translate-x-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all ${layoutDirection === 'vertical' ? 'border-teal-400 z-20 scale-110 shadow-sm shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'}`} />
-                </>
-              )}
-              
-              {/* Output Ports */}
-              {node.type === 'condition' ? (
-                <>
-                  {/* Horizontal Condition Ports */}
-                  <div className={`absolute -right-1.5 inset-y-0 flex flex-col justify-around py-4 transition-opacity duration-300 ${layoutDirection === 'horizontal' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
-                      className={`port-connector w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-500 border-emerald-500' : 'border-emerald-500 hover:bg-emerald-50 shadow-emerald-100'}`}
-                      title="True Path"
-                    />
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
-                      className={`port-connector w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-500 border-red-500' : 'border-red-500 hover:bg-red-50 shadow-red-100'}`}
-                      title="False Path"
-                    />
-                  </div>
-                  {/* Vertical Condition Ports */}
-                  <div className={`absolute -bottom-1.5 inset-x-0 flex justify-around px-12 transition-opacity duration-300 ${layoutDirection === 'vertical' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
-                      className={`port-connector w-3 h-3 -mb-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-500 border-emerald-500' : 'border-emerald-500 hover:bg-emerald-50 shadow-emerald-100'}`}
-                      title="True Path"
-                    />
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
-                      className={`port-connector w-3 h-3 -mb-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-500 border-red-500' : 'border-red-500 hover:bg-red-50 shadow-red-100'}`}
-                      title="False Path"
-                    />
-                  </div>
-                </>
-              ) : node.type !== 'output' ? (
-                <>
-                  {/* Right Port */}
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                    className={`port-connector absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-400 z-20 scale-110 shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'} ${linkingSource?.id === node.id ? 'bg-teal-500 border-teal-500' : ''}`}
-                  />
-                  {/* Bottom Port */}
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                    className={`port-connector absolute left-1/2 -bottom-1.5 -translate-x-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-400 z-20 scale-110 shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'} ${linkingSource?.id === node.id ? 'bg-teal-500 border-teal-500' : ''}`}
-                  />
-                </>
-              ) : null}
-            </motion.div>
-          ))}
-        </motion.div>
+              </motion.div>
+            ))}
+          </motion.div>
       </div>
     </div>
-  </div>
-);
+ <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes flow {
+          from { stroke-dashoffset: 10; }
+          to { stroke-dashoffset: 0; }
+        }
+        .animate-flow {
+          stroke-dasharray: 5;
+          animation: flow 0.5s linear infinite;
+        }
+      `}} />
+    </div>
+  );
 };
 
 export default WorkflowDesigner;

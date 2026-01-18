@@ -3,19 +3,29 @@ import { db } from '../lib/db';
 import { Workflow, Execution } from '../types';
 import { useUserStore } from './userStore';
 import { useAgentStore } from './agentStore';
-import { ActionGraph, ConditionGraph, TriggerGraph, OutputGraph } from '../lib/graphFactory';
+import { ActionGraph, ConditionGraph, TriggerGraph, OutputGraph, InputGraph } from '../lib/graphFactory';
 
 interface WorkflowState {
   workflows: Workflow[];
   executions: Execution[];
   isLoading: boolean;
   error: string | null;
+  activeNodeId: string | null;
+  isExecuting: boolean;
+  pendingInput: {
+    nodeId: string;
+    label: string;
+    type: 'text' | 'number' | 'select' | 'boolean';
+    options?: string[];
+    resolve: (value: any) => void;
+  } | null;
   fetchWorkflows: () => Promise<void>;
   createWorkflow: (workflow: Omit<Workflow, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<string | undefined>;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   executeWorkflow: (workflowId: string, parameters: Record<string, unknown>) => Promise<void>;
   fetchExecutions: (workflowId: string) => Promise<void>;
+  provideInput: (value: any) => void;
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
@@ -23,6 +33,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   executions: [],
   isLoading: false,
   error: null,
+  activeNodeId: null,
+  isExecuting: false,
+  pendingInput: null,
 
   fetchWorkflows: async () => {
     set({ isLoading: true, error: null });
@@ -92,7 +105,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   executeWorkflow: async (workflowId, parameters) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, isExecuting: true });
     try {
       const result = await db.query(
         'INSERT INTO executions (workflow_id, status, parameters, started_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
@@ -103,7 +116,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       set((state) => ({ executions: [execution, ...state.executions], isLoading: false }));
       
       const workflow = get().workflows.find(w => w.id === workflowId);
-      if (!workflow || !workflow.configuration) return;
+      if (!workflow || !workflow.configuration) {
+        set({ isExecuting: false });
+        return;
+      }
 
       const config = workflow.configuration as any;
       const nodes = config.nodes || [];
@@ -111,13 +127,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const agents = useAgentStore.getState().agents;
 
       const triggerNode = nodes.find((n: any) => n.type === 'trigger');
-      if (!triggerNode) return;
+      if (!triggerNode) {
+        set({ isExecuting: false });
+        return;
+      }
 
       let currentNodeId = triggerNode.id;
       const visited = new Set<string>();
       let currentContext = { ...parameters };
 
       while (currentNodeId) {
+        set({ activeNodeId: currentNodeId });
         const node = nodes.find((n: any) => n.id === currentNodeId);
         if (!node) break;
 
@@ -128,6 +148,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
          switch (node.type) {
            case 'trigger':
              graph = new TriggerGraph(agent || { name: 'System Trigger', role: 'trigger' as any });
+             break;
+           case 'input':
+             graph = new InputGraph(agent || { name: 'User Input', role: 'input' as any });
              break;
            case 'condition':
              graph = new ConditionGraph(agent || { name: 'System Evaluator', role: 'evaluator' as any });
@@ -140,7 +163,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
          }
 
         // Execute the real LangGraph logic
-        const graphResult = await graph.execute(node.label || node.description || 'Task', currentContext);
+        let graphResult;
+        if (node.type === 'input') {
+          // Pause execution and wait for user input
+          const userInput = await new Promise((resolve) => {
+            set({
+              pendingInput: {
+                nodeId: node.id,
+                label: node.label,
+                type: node.config?.inputType || 'text',
+                options: node.config?.options,
+                resolve
+              }
+            });
+          });
+          
+          // Update context with user input
+          currentContext = { ...currentContext, [node.label || node.id]: userInput };
+          
+          // Call InputGraph but pass the user input as context
+          graphResult = await graph.execute(node.label || node.description || 'Task', currentContext);
+        } else {
+          graphResult = await graph.execute(node.label || node.description || 'Task', currentContext);
+        }
+
         const lastMessage = graphResult.messages[graphResult.messages.length - 1];
 
         // Record task with real result
@@ -179,10 +225,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         ['completed', execution.id]
       );
 
+      set({ activeNodeId: null, isExecuting: false });
       get().fetchExecutions(workflowId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
-      set({ error: message, isLoading: false });
+      set({ error: message, isLoading: false, activeNodeId: null, isExecuting: false });
     }
   },
 
@@ -197,6 +244,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       set({ error: message, isLoading: false });
+    }
+  },
+
+  provideInput: (value: any) => {
+    const { pendingInput } = get();
+    if (pendingInput) {
+      pendingInput.resolve(value);
+      set({ pendingInput: null });
     }
   },
 }));

@@ -16,6 +16,7 @@ import { twMerge } from 'tailwind-merge';
 import SystemStatus from '../components/SystemStatus';
 import ToastContainer from '../components/ToastContainer';
 import GlobalSearch from '../components/GlobalSearch';
+import { WorkflowInputModal } from '../components/WorkflowInputModal';
 import { useUserStore } from '../store/userStore';
 
 function cn(...inputs: ClassValue[]) {
@@ -40,6 +41,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex">
       <ToastContainer />
+      <WorkflowInputModal />
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full">
         <div className="p-6 flex items-center gap-3">
