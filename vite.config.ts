@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       '@langchain/ollama',
       '@langchain/langgraph',
+      '@langchain/core',
       'langchain',
       'ollama'
     ],
