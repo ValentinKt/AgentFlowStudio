@@ -13,7 +13,8 @@ import {
   MousePointer2,
   Link as LinkIcon,
   Columns,
-  Rows
+  Rows,
+  Settings
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
 import { useWorkflowStore } from '../store/workflowStore';
@@ -551,11 +552,14 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 exit={{ opacity: 0, x: -10 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Step Properties</h4>
-                  <button onClick={() => setSelectedNodeId(null)} className="text-slate-400 hover:text-slate-600">
-                    <X size={14} />
-                  </button>
+                <div className="flex items-center justify-between p-3 bg-teal-50/50 rounded-xl border border-teal-100/50 mb-6">
+                  <div className="flex items-center gap-2">
+                    <Settings size={14} className="text-teal-500" />
+                    <h4 className="text-[10px] font-black text-teal-600 uppercase tracking-[0.2em]">Step Properties</h4>
+                  </div>
+                  <div className="px-2 py-0.5 bg-white rounded text-[9px] font-black text-slate-400 uppercase border border-slate-100">
+                    {selectedNode.type}
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -924,6 +928,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               <motion.div
                 key={node.id}
                 data-id={node.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedNodeId(node.id);
+                }}
                 onMouseEnter={() => setHoveredNodeId(node.id)}
                 onMouseLeave={() => setHoveredNodeId(null)}
                 className={`workflow-node absolute z-10 w-64 bg-white p-6 rounded-2xl border-2 transition-all cursor-move group ${
