@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { db } from '../lib/db';
+import { db, SYSTEM_USER_ID } from '../lib/db';
 import { User } from '../types';
 
 interface UserState {
@@ -19,15 +19,15 @@ export const useUserStore = create<UserState>((set, get) => ({
   fetchUser: async () => {
     set({ isLoading: true });
     try {
-      // Since we use PGlite, we'll just get the first user for now
-      const result = await db.query('SELECT * FROM users LIMIT 1');
+      // Since we use PGlite, we'll try to get the system user first
+      const result = await db.query('SELECT * FROM users WHERE id = $1', [SYSTEM_USER_ID]);
       if (result.rows.length > 0) {
         set({ user: result.rows[0] as User, isLoading: false });
       } else {
-        // Fallback mock if db not ready
+        // Fallback mock if db not ready or user not found yet
         set({ 
           user: {
-            id: '00000000-0000-0000-0000-000000000000',
+            id: SYSTEM_USER_ID,
             email: 'admin@crewmanager.com',
             name: 'Admin User',
             role: 'admin',

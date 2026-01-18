@@ -3,6 +3,8 @@ import { PGlite } from '@electric-sql/pglite';
 // Initialize PGlite - this will run in the browser
 export const db = new PGlite();
 
+export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
 // Helper to initialize schema
 export const initSchema = async () => {
   await db.exec(`
@@ -70,11 +72,11 @@ export const initSchema = async () => {
   `);
 
   // Check if we have a default user, if not create one
-  const users = await db.query('SELECT * FROM users LIMIT 1');
+  const users = await db.query('SELECT * FROM users WHERE id = $1', [SYSTEM_USER_ID]);
   if (users.rows.length === 0) {
     await db.query(`
-      INSERT INTO users (email, name, role)
-      VALUES ('admin@crewmanager.com', 'Admin User', 'admin')
-    `);
+      INSERT INTO users (id, email, name, role)
+      VALUES ($1, 'admin@crewmanager.com', 'Admin User', 'admin')
+    `, [SYSTEM_USER_ID]);
   }
 };
