@@ -26,4 +26,8 @@
 [x] Fix canvas panning trigger and implement layout-dependent node connectors
 [x] Implement and test workflow simulation in Visual Workflow Canvas
 [x] Integrate LangChain, LangGraph, and Ollama (gemini-3-flash-preview) into agent creation and simulation
+[x] Fix Vite 504 errors by optimizing LangChain dependencies
+[x] Resolve esbuild "Could not resolve @langchain/core" errors by installing the core package
+[x] Fix browser TypeError: undefined is not a constructor (AsyncLocalStorage) by adding mocks and polyfills
+[x] Launch and verify application functionality in the browser
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)
