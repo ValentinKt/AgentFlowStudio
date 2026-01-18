@@ -21,4 +21,6 @@
 [x] Implement Global Notification (Toast) system
 [x] Add Global Command Search (⌘K) for quick navigation
 [x] Implement Workflow Export/Import functionality for portability
+[x] Implement canvas panning and node alignment in Visual Workflow Canvas
+[x] Fix syntax errors and linter warnings in WorkflowDesigner.tsx
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)
