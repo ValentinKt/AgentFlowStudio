@@ -8,6 +8,14 @@ export default defineConfig({
   build: {
     sourcemap: 'hidden',
   },
+  optimizeDeps: {
+    include: [
+      '@langchain/ollama',
+      '@langchain/langgraph',
+      'langchain',
+      'ollama'
+    ],
+  },
   plugins: [
     react({
       babel: {
