@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
@@ -63,6 +63,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [simulationSpeed, setSimulationSpeed] = useState(1500); // ms per step
+  const stopSimulationRef = useRef(false);
 
   useEffect(() => {
     fetchAgents();
@@ -118,6 +122,64 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
   const handleSave = () => {
     onSave({ nodes, edges });
+  };
+
+  const runSimulation = async () => {
+    if (isSimulating) {
+      stopSimulationRef.current = true;
+      return;
+    }
+
+    setIsSimulating(true);
+    stopSimulationRef.current = false;
+    
+    // Find the trigger node
+    const triggerNode = nodes.find(n => n.type === 'trigger');
+    if (!triggerNode) {
+      alert('No trigger node found to start the workflow.');
+      setIsSimulating(false);
+      return;
+    }
+
+    let currentNodeId: string | null = triggerNode.id;
+    const visited = new Set<string>();
+
+    try {
+      while (currentNodeId && !stopSimulationRef.current) {
+        setActiveNodeId(currentNodeId);
+        
+        const currentNode = nodes.find(n => n.id === currentNodeId);
+        if (!currentNode) break;
+
+        await new Promise(resolve => setTimeout(resolve, simulationSpeed));
+        if (stopSimulationRef.current) break;
+
+        visited.add(currentNodeId);
+
+        const outgoingEdges = edges.filter(e => e.source === currentNodeId);
+        if (outgoingEdges.length === 0) break;
+
+        let nextNodeId: string | undefined;
+
+        if (currentNode.type === 'condition') {
+          const choice = Math.random() > 0.5 ? 'true' : 'false';
+          const edge = outgoingEdges.find(e => e.sourcePort === choice) || outgoingEdges[0];
+          nextNodeId = edge.target;
+        } else {
+          nextNodeId = outgoingEdges[0].target;
+        }
+
+        if (nextNodeId && !visited.has(nextNodeId)) {
+          currentNodeId = nextNodeId;
+        } else {
+          currentNodeId = null;
+        }
+      }
+    } finally {
+      setActiveNodeId(null);
+      setIsSimulating(false);
+      stopSimulationRef.current = false;
+    }
   };
 
   const getAgentName = (id?: string) => {
@@ -452,10 +514,11 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               <Maximize2 size={16} />
             </button>
             <button 
-              className="p-3 bg-teal-500 text-white rounded-xl shadow-lg hover:bg-teal-600 transition-all active:scale-95 ml-2"
-              title="Run Workflow (Simulation)"
+              onClick={runSimulation}
+              className={`p-3 rounded-xl shadow-lg transition-all active:scale-95 ml-2 ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-teal-500 hover:bg-teal-600'}`}
+              title={isSimulating ? "Stop Simulation" : "Run Workflow (Simulation)"}
             >
-              <Play size={18} fill="currentColor" />
+              {isSimulating ? <X size={18} className="text-white" /> : <Play size={18} fill="currentColor" className="text-white" />}
             </button>
           </div>
 
@@ -541,12 +604,12 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                     <path 
                       d={path}
                       fill="none"
-                      stroke={edge.sourcePort === 'true' ? '#10b981' : edge.sourcePort === 'false' ? '#ef4444' : '#14b8a6'} 
-                      strokeWidth="2"
-                      strokeDasharray={edge.sourcePort ? "none" : "4 4"}
-                      markerEnd="url(#arrow)"
-                      className="transition-all group-hover:stroke-red-400 group-hover:stroke-[3px]"
-                    />
+                stroke={activeNodeId === edge.source && activeNodeId === edge.target ? '#14b8a6' : edge.sourcePort === 'true' ? '#10b981' : edge.sourcePort === 'false' ? '#ef4444' : '#14b8a6'} 
+                strokeWidth={activeNodeId === edge.source ? "3" : "2"}
+                strokeDasharray={isSimulating && activeNodeId === edge.source ? "5 5" : edge.sourcePort ? "none" : "4 4"}
+                markerEnd="url(#arrow)"
+                className={`transition-all group-hover:stroke-red-400 group-hover:stroke-[3px] ${isSimulating && activeNodeId === edge.source ? 'animate-pulse' : ''}`}
+              />
                     <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r="10" className="fill-white stroke-slate-200 opacity-0 group-hover:opacity-100" />
                     <X size={10} x={(x1+x2)/2 - 5} y={(y1+y2)/2 - 5} className="text-red-400 opacity-0 group-hover:opacity-100" />
                   </g>
@@ -571,6 +634,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   }
                 }}
                 className={`workflow-node absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
+                  activeNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/20 shadow-xl scale-110 z-20 bg-teal-50/10' :
                   selectedNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/10 shadow-lg scale-105' : 
                   linkingSource?.id === node.id ? 'border-amber-500 ring-4 ring-amber-500/10' :
                   'border-slate-200 shadow-sm hover:border-teal-300'
