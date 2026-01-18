@@ -45,7 +45,7 @@ export abstract class BaseWorkflowGraph {
     const modelConfig = agent.model_config || {};
     this.model = new ChatOllama({
       baseUrl: OLLAMA_BASE_URL,
-      model: modelConfig.model_name || OLLAMA_MODEL,
+      model: "gemini-3-flash-preview", // Forced use of gemini-3-flash-preview
       temperature: modelConfig.temperature ?? 0.7,
       topP: modelConfig.top_p,
       numPredict: modelConfig.max_tokens,
@@ -120,26 +120,64 @@ export abstract class BaseWorkflowGraph {
 }
 
 /**
+ * Schéma spécifique pour les nœuds d'Action avec réflexion
+ */
+const ActionState = Annotation.Root({
+  ...BaseAgentState.spec,
+  reflection: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+    default: () => "",
+  }),
+  iterations: Annotation<number>({
+    reducer: (x, y) => x + y,
+    default: () => 0,
+  }),
+});
+
+/**
  * Implémentation spécifique pour les nœuds de type Action
+ * Utilise un cycle de réflexion LangGraph pour améliorer la qualité
  */
 export class ActionGraph extends BaseWorkflowGraph {
   buildGraph() {
-    const processNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = this.agent.system_prompt || `Tu es un expert avec le rôle : ${state.agentRole}. Ton nom est ${this.agent.name}.
-      Réalise la tâche suivante de manière professionnelle et concise.`;
+    const processNode = async (state: typeof ActionState.State) => {
+      const systemPrompt = this.agent.system_prompt || `You are an expert ${state.agentRole}. Your name is ${this.agent.name}.
+      Execute the following task professionally and concisely.`;
       
       const content = await this.invokeModel(systemPrompt, state.currentTask);
       
       return {
         messages: [content as string],
-        status: "completed",
+        iterations: 1,
       };
     };
 
-    return new StateGraph(BaseAgentState)
+    const reflectNode = async (state: typeof ActionState.State) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const systemPrompt = `You are a critical reviewer for the ${state.agentRole} role. 
+      Analyze the previous output and suggest 3 small improvements or confirm if it's perfect.
+      If it's perfect, start your response with "APPROVED".`;
+      
+      const reflection = await this.invokeModel(systemPrompt, `Review this output: ${lastMessage}`);
+      
+      return {
+        reflection: reflection as string,
+      };
+    };
+
+    const shouldContinue = (state: typeof ActionState.State) => {
+      if (state.iterations >= 2 || (state.reflection && state.reflection.includes("APPROVED"))) {
+        return END;
+      }
+      return "reflect";
+    };
+
+    return new StateGraph(ActionState)
       .addNode("process", processNode)
+      .addNode("reflect", reflectNode)
       .addEdge(START, "process")
-      .addEdge("process", END)
+      .addConditionalEdges("process", shouldContinue)
+      .addEdge("reflect", "process")
       .compile();
   }
 }
@@ -150,11 +188,19 @@ export class ActionGraph extends BaseWorkflowGraph {
 export class ConditionGraph extends BaseWorkflowGraph {
   buildGraph() {
     const evaluateNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `Tu es un évaluateur critique. Analyse la situation et décide si la condition est remplie.
-      Réponds uniquement par "true" ou "false".`;
+      const systemPrompt = `You are a critical evaluator. Analyze the situation and decide if the condition is met.
+      Respond ONLY with a JSON object: {"decision": true/false, "reasoning": "your explanation"}.`;
       
-      const content = await this.invokeModel(systemPrompt, `Évalue cette condition : ${state.currentTask}`);
-      const decision = (content as string).toLowerCase().includes("true");
+      const content = await this.invokeModel(systemPrompt, `Evaluate this condition: ${state.currentTask}`);
+      
+      let decision = false;
+      try {
+        const jsonMatch = (content as string).match(/\{[\s\S]*\}/);
+        const data = JSON.parse(jsonMatch ? jsonMatch[0] : (content as string));
+        decision = data.decision;
+      } catch (e) {
+        decision = (content as string).toLowerCase().includes("true");
+      }
       
       return {
         messages: [content as string],
@@ -177,8 +223,8 @@ export class ConditionGraph extends BaseWorkflowGraph {
 export class TriggerGraph extends BaseWorkflowGraph {
   buildGraph() {
     const triggerNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `Tu es un déclencheur de workflow. Prépare les données initiales pour le workflow.`;
-      const content = await this.invokeModel(systemPrompt, `Déclencheur : ${state.currentTask}`);
+      const systemPrompt = `You are a workflow trigger. Prepare the initial data for the workflow using the Gemini-3-Flash-Preview model capabilities.`;
+      const content = await this.invokeModel(systemPrompt, `Trigger: ${state.currentTask}`);
       
       return {
         messages: [content as string],
@@ -204,13 +250,13 @@ export class InputGraph extends BaseWorkflowGraph {
       
       if (userValue !== undefined) {
         return {
-          messages: [`L'utilisateur a fourni la valeur : ${userValue}`],
+          messages: [`User provided value: ${userValue}`],
           status: "completed",
         };
       }
 
-      const systemPrompt = `Tu es un collecteur d'informations. Prépare les données saisies par l'utilisateur pour le workflow.`;
-      const content = await this.invokeModel(systemPrompt, `Collecte de données : ${state.currentTask}`);
+      const systemPrompt = `You are an information collector. Format the data entered by the user for the workflow.`;
+      const content = await this.invokeModel(systemPrompt, `Data collection: ${state.currentTask}`);
       
       return {
         messages: [content as string],
@@ -232,8 +278,8 @@ export class InputGraph extends BaseWorkflowGraph {
 export class OutputGraph extends BaseWorkflowGraph {
   buildGraph() {
     const outputNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `Tu es responsable de la sortie finale. Formate les résultats pour le canal : ${state.context.outputType || 'database'}.`;
-      const content = await this.invokeModel(systemPrompt, `Formate ce résultat : ${state.currentTask}`);
+      const systemPrompt = `You are responsible for the final output. Format the results for the channel: ${state.context.outputType || 'database'}.`;
+      const content = await this.invokeModel(systemPrompt, `Format this result: ${state.currentTask}`);
       
       return {
         messages: [content as string],
