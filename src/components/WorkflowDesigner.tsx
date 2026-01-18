@@ -56,7 +56,7 @@ interface WorkflowDesignerProps {
 
 const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, onSave }) => {
   const { agents, fetchAgents } = useAgentStore();
-  const { activeNodeId: globalActiveNodeId, isExecuting: globalIsExecuting } = useWorkflowStore();
+  const { activeNodeId: globalActiveNodeId, isExecuting: globalIsExecuting, pendingInput, provideInput } = useWorkflowStore();
   const [nodes, setNodes] = useState<Node[]>(workflow.configuration?.nodes || [
     { id: '1', label: 'Start Node', type: 'trigger', x: 100, y: 100 }
   ]);
@@ -163,7 +163,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   };
 
   const runSimulation = async () => {
-    if (isSimulating) {
+    if (effectiveIsExecuting) {
       stopSimulationRef.current = true;
       return;
     }
@@ -189,8 +189,24 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         const currentNode = nodes.find(n => n.id === currentNodeId);
         if (!currentNode) break;
 
-        // Simulate agent thinking if it's an action node with an agent
-        if (currentNode.type === 'action' && currentNode.agentId) {
+        // Handle Input nodes during simulation
+        if (currentNode.type === 'input') {
+          const userInput = await new Promise((resolve) => {
+            // We use the store's provideInput mechanism but we're in simulation mode
+            // We need to manually trigger the store's pendingInput state
+            useWorkflowStore.setState({
+              pendingInput: {
+                nodeId: currentNode.id,
+                label: currentNode.label,
+                type: currentNode.config?.inputType || 'text',
+                options: currentNode.config?.options,
+                resolve
+              }
+            });
+          });
+          console.log(`Simulation input received for ${currentNode.label}:`, userInput);
+        } else if (currentNode.type === 'action' && currentNode.agentId) {
+          // Simulate agent thinking if it's an action node with an agent
           try {
             const agent = agents.find(a => a.id === currentNode.agentId);
             const model = createAgentModel();
@@ -202,9 +218,11 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           } catch (e) {
             console.warn('Ollama not available, skipping real simulation.');
           }
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        await new Promise(resolve => setTimeout(resolve, 1500));
         if (stopSimulationRef.current) break;
 
         visited.add(currentNodeId);
@@ -232,6 +250,8 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       setActiveNodeIdLocal(null);
       setIsSimulating(false);
       stopSimulationRef.current = false;
+      // Clear pending input if we stop
+      useWorkflowStore.setState({ pendingInput: null });
     }
   };
 

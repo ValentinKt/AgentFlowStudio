@@ -119,33 +119,33 @@ const Workflows: React.FC = () => {
        description: 'End-to-end autonomous workflow to build and deploy applications from a single prompt.',
        configuration: {
          nodes: [
-           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 100, y: 100, config: { triggerType: 'webhook' } },
-           { id: 'i1', label: 'Project Requirements', type: 'input', x: 100, y: 300, config: { inputType: 'text' }, description: 'Detailed functional requirements.' },
-           { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 100, y: 500, config: { inputType: 'text' }, description: 'Colors, logos, and style preferences.' },
-           { id: 'i3', label: 'Target Platform', type: 'input', x: 100, y: 700, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target.' },
+           { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
+           { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 200, config: { inputType: 'text' }, description: 'Detailed functional requirements and user stories.' },
+           { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 350, config: { inputType: 'text' }, description: 'Colors, logos, and visual style preferences.' },
+           { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 500, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
            
-           { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 350, y: 400, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured prompt.' },
+           { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 650, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured system prompt.' },
            
-           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 650, y: 400, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable tasks.' },
+           { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 800, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable developer tasks.' },
            
-           { id: 'n3', label: 'System Architecture', type: 'action', x: 950, y: 200, agentId: diagram?.id, description: 'Generate technical diagrams and schemas.' },
-           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 950, y: 600, agentId: promptManager?.id, description: 'Fetch relevant code patterns and documentation.' },
+           { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 950, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
+           { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 950, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
            
-           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 1250, y: 400, agentId: prompter?.id, description: 'Optimize prompts for sub-agents.' },
+           { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1100, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
            
-           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 1550, y: 200, agentId: ui?.id, description: 'Generate Tailwind components and layout.' },
-           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 1550, y: 600, agentId: developer?.id, description: 'Implement backend functions and database logic.' },
+           { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1250, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
+           { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1250, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
            
-           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 1850, y: 400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
-           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 1850, y: 700, agentId: developer?.id, description: 'Fix issues identified during QA.' },
+           { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 1400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
+           { id: 'n9', label: 'Refine & Debug', type: 'action', x: 900, y: 1400, agentId: developer?.id, description: 'Fix issues and bugs identified during the QA phase.' },
            
-           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 2150, y: 300, config: { outputType: 'database' }, description: 'Deploy the application to production.' },
-           { id: 'n11', label: 'Slack Notification', type: 'output', x: 2150, y: 500, config: { outputType: 'slack' }, description: 'Notify stakeholders of success.' }
+           { id: 'n10', label: 'Vercel Deployment', type: 'output', x: 400, y: 1550, config: { outputType: 'database' }, description: 'Deploy the application to Vercel production environment.' },
+           { id: 'n11', label: 'Slack Notification', type: 'output', x: 800, y: 1550, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and deployment.' }
          ],
          edges: [
-           { id: 'e1-prompt', source: 'n1', target: 'n_prompt' },
-           { id: 'ei1-prompt', source: 'i1', target: 'n_prompt' },
-           { id: 'ei2-prompt', source: 'i2', target: 'n_prompt' },
+           { id: 'e1-i1', source: 'n1', target: 'i1' },
+           { id: 'ei1-i2', source: 'i1', target: 'i2' },
+           { id: 'ei2-i3', source: 'i2', target: 'i3' },
            { id: 'ei3-prompt', source: 'i3', target: 'n_prompt' },
            
            { id: 'e-prompt-2', source: 'n_prompt', target: 'n2' },
@@ -400,24 +400,24 @@ const Workflows: React.FC = () => {
                     onClick={() => setIsPromptModalOpen(false)}
                     className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
                   >
-                    Annuler
+                    Cancel
                   </button>
                   <button
                     onClick={async () => {
                       if (workflowToExecute && executionPrompt.trim()) {
                         await executeWorkflow(workflowToExecute.id, { prompt: executionPrompt });
-                        addNotification('success', `Exécution lancée avec votre prompt !`);
+                        addNotification('success', `Execution started with your prompt!`);
                         setIsPromptModalOpen(false);
                         setExecutionPrompt('');
                         setWorkflowToExecute(null);
                       } else {
-                        addNotification('error', 'Veuillez saisir un prompt pour continuer.');
+                        addNotification('error', 'Please enter a prompt to continue.');
                       }
                     }}
-                    className="flex-[2] px-4 py-3 bg-indigo-500 text-white rounded-xl font-bold hover:bg-indigo-600 shadow-lg shadow-indigo-100 transition-all flex items-center justify-center gap-2"
+                    className="flex-[2] px-4 py-3 bg-teal-500 text-white rounded-xl font-bold hover:bg-teal-600 shadow-lg shadow-teal-100 transition-all flex items-center justify-center gap-2"
                   >
                     <Play size={18} fill="currentColor" />
-                    Lancer l'Agentique
+                    Launch Workflow
                   </button>
                 </div>
               </div>

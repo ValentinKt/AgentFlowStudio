@@ -37,5 +37,7 @@
 [x] Add "Seed Agents" functionality to quickly set up required agent roles
 [x] Implement Interactive Input Modal for user data collection during workflow execution
 [x] Synchronize global execution state with Visual Workflow Canvas for real-time tracking
+[x] Optimize "Ultimate App Creator AI" workflow with sequential modal inputs at start
+[x] Enable interactive simulation with input modals in WorkflowDesigner
 [x] Launch and verify application functionality with PGLite backend
 [ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)
