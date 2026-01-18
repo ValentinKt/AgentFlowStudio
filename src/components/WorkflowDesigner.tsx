@@ -11,7 +11,9 @@ import {
   User,
   X,
   MousePointer2,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Columns,
+  Rows
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
 
@@ -57,6 +59,9 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [linkingSource, setLinkingSource] = useState<{ id: string, port: Edge['sourcePort'] } | null>(null);
+  const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     fetchAgents();
@@ -69,8 +74,8 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       id: Math.random().toString(36).substring(2, 11),
       label: `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
       type,
-      x: 300,
-      y: 200,
+      x: 300 - viewOffset.x,
+      y: 200 - viewOffset.y,
       config: type === 'condition' ? { conditionTrue: 'Approved', conditionFalse: 'Rejected' } : {}
     };
     setNodes([...nodes, newNode]);
@@ -117,6 +122,102 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const getAgentName = (id?: string) => {
     if (!id) return 'No Agent Assigned';
     return agents.find(a => a.id === id)?.name || 'Unknown Agent';
+  };
+
+  const alignNodes = (direction: 'horizontal' | 'vertical') => {
+    if (nodes.length === 0) return;
+
+    // Simple layout algorithm: Layer nodes by dependency
+    const nodeLayers: { [id: string]: number } = {};
+    const processedNodes = new Set<string>();
+    
+    // Find roots
+    let currentLayer = nodes.filter(n => !edges.find(e => e.target === n.id));
+    let layerIndex = 0;
+
+    while (currentLayer.length > 0) {
+      const nextLayer: Node[] = [];
+      currentLayer.forEach(node => {
+        if (!processedNodes.has(node.id)) {
+          nodeLayers[node.id] = layerIndex;
+          processedNodes.add(node.id);
+          
+          // Find children
+          const children = edges
+            .filter(e => e.source === node.id)
+            .map(e => nodes.find(n => n.id === e.target))
+            .filter(Boolean) as Node[];
+          
+          children.forEach(child => {
+            if (!processedNodes.has(child.id)) {
+              nextLayer.push(child);
+            }
+          });
+        }
+      });
+      currentLayer = nextLayer;
+      layerIndex++;
+    }
+
+    // Handle orphaned nodes (cycles or isolated)
+    nodes.forEach(node => {
+      if (!processedNodes.has(node.id)) {
+        nodeLayers[node.id] = layerIndex;
+      }
+    });
+
+    // Group nodes by layer
+    const layers: { [layer: number]: string[] } = {};
+    Object.entries(nodeLayers).forEach(([id, layer]) => {
+      if (!layers[layer]) layers[layer] = [];
+      layers[layer].push(id);
+    });
+
+    const HORIZONTAL_SPACING = 300;
+    const VERTICAL_SPACING = 150;
+    const START_X = 100;
+    const START_Y = 100;
+
+    const newNodes = nodes.map(node => {
+      const layer = nodeLayers[node.id] || 0;
+      const indexInLayer = layers[layer].indexOf(node.id);
+      
+      if (direction === 'horizontal') {
+        return {
+          ...node,
+          x: START_X + layer * HORIZONTAL_SPACING,
+          y: START_Y + indexInLayer * VERTICAL_SPACING
+        };
+      } else {
+        return {
+          ...node,
+          x: START_X + indexInLayer * HORIZONTAL_SPACING,
+          y: START_Y + layer * VERTICAL_SPACING
+        };
+      }
+    });
+
+    setNodes(newNodes);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).classList.contains('pattern-dots')) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - viewOffset.x, y: e.clientY - viewOffset.y });
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isPanning) {
+      setViewOffset({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
   };
 
   return (
@@ -306,17 +407,55 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
         {/* Canvas Area */}
         <div 
-          className="flex-1 bg-[#f8fafc] relative overflow-hidden pattern-dots cursor-crosshair"
+          className={`flex-1 bg-[#f8fafc] relative overflow-hidden pattern-dots cursor-crosshair ${isPanning ? 'cursor-grabbing' : ''}`}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
           onClick={() => {
             setSelectedNodeId(null);
             setLinkingSource(null);
           }}
         >
+          {/* Canvas Controls */}
+          <div className="absolute bottom-6 right-6 flex items-center gap-2 z-20">
+            <button 
+              onClick={() => alignNodes('horizontal')}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-wider hover:border-teal-500 hover:text-teal-600 transition-all shadow-sm"
+              title="Align nodes horizontally"
+            >
+              <Columns size={14} />
+              Align Horizontal
+            </button>
+            <button 
+              onClick={() => alignNodes('vertical')}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-wider hover:border-teal-500 hover:text-teal-600 transition-all shadow-sm"
+              title="Align nodes vertically"
+            >
+              <Rows size={14} />
+              Align Vertical
+            </button>
+            <div className="w-px h-6 bg-slate-100 mx-1" />
+            <button 
+              onClick={() => setViewOffset({ x: 0, y: 0 })}
+              className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-teal-500 hover:border-teal-500 transition-all shadow-sm"
+              title="Reset view"
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button 
+              className="p-3 bg-teal-500 text-white rounded-xl shadow-lg hover:bg-teal-600 transition-all active:scale-95 ml-2"
+              title="Run Workflow (Simulation)"
+            >
+              <Play size={18} fill="currentColor" />
+            </button>
+          </div>
+
           {/* Canvas Legend */}
           <div className="absolute top-6 left-6 flex items-center gap-4 z-20">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 backdrop-blur-md rounded-full border border-slate-200 shadow-sm">
               <div className="w-2 h-2 bg-teal-500 rounded-full" />
-              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canvas Mode</span>
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canvas Mode (Drag to Pan)</span>
             </div>
             {linkingSource && (
               <motion.div 
@@ -330,77 +469,81 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             )}
           </div>
 
-          <svg className="absolute inset-0 pointer-events-none w-full h-full">
-            <defs>
-              <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#14b8a6" />
-              </marker>
-            </defs>
-            {edges.map(edge => {
-              const source = nodes.find(n => n.id === edge.source);
-              const target = nodes.find(n => n.id === edge.target);
-              if (!source || !target) return null;
-              
-              // Calculate source point based on port
-              let x1 = source.x + 224; // Default right side
-              let y1 = source.y + 50;
+          <motion.div 
+            className="absolute inset-0 w-full h-full"
+            style={{ x: viewOffset.x, y: viewOffset.y }}
+          >
+            <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#14b8a6" />
+                </marker>
+              </defs>
+              {edges.map(edge => {
+                const source = nodes.find(n => n.id === edge.source);
+                const target = nodes.find(n => n.id === edge.target);
+                if (!source || !target) return null;
+                
+                // Calculate source point based on port
+                let x1 = source.x + 224; // Default right side
+                let y1 = source.y + 50;
 
-              if (source.type === 'condition') {
-                if (edge.sourcePort === 'true') {
-                  y1 = source.y + 40;
-                } else if (edge.sourcePort === 'false') {
-                  y1 = source.y + 80;
+                if (source.type === 'condition') {
+                  if (edge.sourcePort === 'true') {
+                    y1 = source.y + 40;
+                  } else if (edge.sourcePort === 'false') {
+                    y1 = source.y + 80;
+                  }
                 }
-              }
 
-              const x2 = target.x; // Target left side
-              const y2 = target.y + 50;
+                const x2 = target.x; // Target left side
+                const y2 = target.y + 50;
 
-              // Bezier curve for edges
-              const dx = Math.abs(x1 - x2) * 0.5;
-              const path = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+                // Bezier curve for edges
+                const dx = Math.abs(x1 - x2) * 0.5;
+                const path = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
 
-              return (
-                <g key={edge.id} className="pointer-events-auto cursor-pointer group" onClick={(e) => { e.stopPropagation(); deleteEdge(edge.id); }}>
-                  <path 
-                    d={path}
-                    fill="none"
-                    stroke={edge.sourcePort === 'true' ? '#10b981' : edge.sourcePort === 'false' ? '#ef4444' : '#14b8a6'} 
-                    strokeWidth="2"
-                    strokeDasharray={edge.sourcePort ? "none" : "4 4"}
-                    markerEnd="url(#arrow)"
-                    className="transition-all group-hover:stroke-red-400 group-hover:stroke-[3px]"
-                  />
-                  <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r="10" className="fill-white stroke-slate-200 opacity-0 group-hover:opacity-100" />
-                  <X size={10} x={(x1+x2)/2 - 5} y={(y1+y2)/2 - 5} className="text-red-400 opacity-0 group-hover:opacity-100" />
-                </g>
-              );
-            })}
-          </svg>
+                return (
+                  <g key={edge.id} className="pointer-events-auto cursor-pointer group" onClick={(e) => { e.stopPropagation(); deleteEdge(edge.id); }}>
+                    <path 
+                      d={path}
+                      fill="none"
+                      stroke={edge.sourcePort === 'true' ? '#10b981' : edge.sourcePort === 'false' ? '#ef4444' : '#14b8a6'} 
+                      strokeWidth="2"
+                      strokeDasharray={edge.sourcePort ? "none" : "4 4"}
+                      markerEnd="url(#arrow)"
+                      className="transition-all group-hover:stroke-red-400 group-hover:stroke-[3px]"
+                    />
+                    <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r="10" className="fill-white stroke-slate-200 opacity-0 group-hover:opacity-100" />
+                    <X size={10} x={(x1+x2)/2 - 5} y={(y1+y2)/2 - 5} className="text-red-400 opacity-0 group-hover:opacity-100" />
+                  </g>
+                );
+              })}
+            </svg>
 
-          {nodes.map((node) => (
-            <motion.div
-              key={node.id}
-              drag
-              dragMomentum={false}
-              onDrag={(e, info) => {
-                updateNode(node.id, { x: node.x + info.delta.x, y: node.y + info.delta.y });
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (linkingSource) {
-                  completeLinking(node.id);
-                } else {
-                  setSelectedNodeId(node.id);
-                }
-              }}
-              className={`absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
-                selectedNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/10 shadow-lg scale-105' : 
-                linkingSource?.id === node.id ? 'border-amber-500 ring-4 ring-amber-500/10' :
-                'border-slate-200 shadow-sm hover:border-teal-300'
-              }`}
-              style={{ x: node.x, y: node.y }}
-            >
+            {nodes.map((node) => (
+              <motion.div
+                key={node.id}
+                drag
+                dragMomentum={false}
+                onDrag={(_, info) => {
+                  updateNode(node.id, { x: node.x + info.delta.x, y: node.y + info.delta.y });
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (linkingSource) {
+                    completeLinking(node.id);
+                  } else {
+                    setSelectedNodeId(node.id);
+                  }
+                }}
+                className={`absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
+                  selectedNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/10 shadow-lg scale-105' : 
+                  linkingSource?.id === node.id ? 'border-amber-500 ring-4 ring-amber-500/10' :
+                  'border-slate-200 shadow-sm hover:border-teal-300'
+                }`}
+                style={{ left: node.x, top: node.y }}
+              >
               <div className="flex items-center justify-between mb-3">
                 <div className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
                   node.type === 'trigger' ? 'bg-amber-100 text-amber-700' :
@@ -461,21 +604,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               ) : null}
             </motion.div>
           ))}
-
-          {/* Quick Actions Overlay */}
-          <div className="absolute bottom-8 right-8 flex items-center gap-3">
-            <div className="bg-white/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-200 shadow-xl flex items-center gap-4">
-              <div className="flex flex-col">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Canvas Zoom</span>
-                <span className="text-xs font-bold text-slate-700">100%</span>
-              </div>
-              <div className="w-px h-6 bg-slate-100" />
-              <button className="p-2 bg-teal-500 text-white rounded-xl shadow-lg hover:bg-teal-600 transition-all active:scale-95">
-                <Play size={20} fill="currentColor" />
-              </button>
-            </div>
-          </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
