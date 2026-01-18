@@ -62,6 +62,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal');
 
   useEffect(() => {
     fetchAgents();
@@ -126,6 +127,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
   const alignNodes = (direction: 'horizontal' | 'vertical') => {
     if (nodes.length === 0) return;
+    setLayoutDirection(direction);
 
     // Simple layout algorithm: Layer nodes by dependency
     const nodeLayers: { [id: string]: number } = {};
@@ -201,7 +203,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).classList.contains('pattern-dots')) {
+    // Only pan if clicking on the background (not a node or button)
+    const target = e.target as HTMLElement;
+    const isNode = target.closest('.workflow-node');
+    const isButton = target.closest('button');
+    const isPort = target.closest('.port-connector');
+    
+    if (!isNode && !isButton && !isPort) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - viewOffset.x, y: e.clientY - viewOffset.y });
     }
@@ -421,7 +429,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           <div className="absolute bottom-6 right-6 flex items-center gap-2 z-20">
             <button 
               onClick={() => alignNodes('horizontal')}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-wider hover:border-teal-500 hover:text-teal-600 transition-all shadow-sm"
+              className={`flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
               title="Align nodes horizontally"
             >
               <Columns size={14} />
@@ -429,7 +437,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             </button>
             <button 
               onClick={() => alignNodes('vertical')}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-wider hover:border-teal-500 hover:text-teal-600 transition-all shadow-sm"
+              className={`flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
               title="Align nodes vertically"
             >
               <Rows size={14} />
@@ -484,24 +492,49 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 const target = nodes.find(n => n.id === edge.target);
                 if (!source || !target) return null;
                 
-                // Calculate source point based on port
-                let x1 = source.x + 224; // Default right side
-                let y1 = source.y + 50;
+                let x1, y1, x2, y2;
+                const nodeWidth = 224; // w-56 = 14rem = 224px
+                const nodeHeight = 140; // Approx height
 
-                if (source.type === 'condition') {
-                  if (edge.sourcePort === 'true') {
-                    y1 = source.y + 40;
-                  } else if (edge.sourcePort === 'false') {
-                    y1 = source.y + 80;
+                if (layoutDirection === 'horizontal') {
+                  // Horizontal: Source right, Target left
+                  x1 = source.x + nodeWidth;
+                  y1 = source.y + 50;
+
+                  if (source.type === 'condition') {
+                    if (edge.sourcePort === 'true') {
+                      y1 = source.y + 40;
+                    } else if (edge.sourcePort === 'false') {
+                      y1 = source.y + 80;
+                    }
                   }
+
+                  x2 = target.x;
+                  y2 = target.y + 50;
+                } else {
+                  // Vertical: Source bottom, Target top
+                  x1 = source.x + nodeWidth / 2;
+                  y1 = source.y + nodeHeight;
+
+                  if (source.type === 'condition') {
+                    if (edge.sourcePort === 'true') {
+                      x1 = source.x + (nodeWidth / 3);
+                    } else if (edge.sourcePort === 'false') {
+                      x1 = source.x + (2 * nodeWidth / 3);
+                    }
+                  }
+
+                  x2 = target.x + nodeWidth / 2;
+                  y2 = target.y;
                 }
 
-                const x2 = target.x; // Target left side
-                const y2 = target.y + 50;
-
                 // Bezier curve for edges
-                const dx = Math.abs(x1 - x2) * 0.5;
-                const path = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+                const dx = layoutDirection === 'horizontal' ? Math.abs(x1 - x2) * 0.5 : 0;
+                const dy = layoutDirection === 'vertical' ? Math.abs(y1 - y2) * 0.5 : 0;
+                
+                const path = layoutDirection === 'horizontal' 
+                  ? `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
+                  : `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
 
                 return (
                   <g key={edge.id} className="pointer-events-auto cursor-pointer group" onClick={(e) => { e.stopPropagation(); deleteEdge(edge.id); }}>
@@ -537,7 +570,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                     setSelectedNodeId(node.id);
                   }
                 }}
-                className={`absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
+                className={`workflow-node absolute z-10 w-56 bg-white p-4 rounded-2xl border transition-all cursor-move group ${
                   selectedNodeId === node.id ? 'border-teal-500 ring-4 ring-teal-500/10 shadow-lg scale-105' : 
                   linkingSource?.id === node.id ? 'border-amber-500 ring-4 ring-amber-500/10' :
                   'border-slate-200 shadow-sm hover:border-teal-300'
@@ -557,7 +590,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   {node.type !== 'condition' && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                      className={`p-1.5 rounded-md transition-all ${linkingSource?.id === node.id ? 'bg-amber-500 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-teal-500'}`}
+                      className={`port-connector p-1.5 rounded-md transition-all ${linkingSource?.id === node.id ? 'bg-amber-500 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-teal-500'}`}
                       title="Link to another step"
                     >
                       <LinkIcon size={12} />
@@ -580,27 +613,59 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 </div>
               </div>
 
-              {/* Input Port */}
+              {/* Input Ports */}
               {node.type !== 'trigger' && (
-                <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 border-slate-200 rounded-full group-hover:border-teal-400 transition-colors" />
+                <>
+                  {/* Left Port */}
+                  <div className={`port-connector absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all ${layoutDirection === 'horizontal' ? 'border-teal-400 z-20 scale-110 shadow-sm shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'}`} />
+                  {/* Top Port */}
+                  <div className={`port-connector absolute left-1/2 -top-1.5 -translate-x-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all ${layoutDirection === 'vertical' ? 'border-teal-400 z-20 scale-110 shadow-sm shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'}`} />
+                </>
               )}
               
               {/* Output Ports */}
               {node.type === 'condition' ? (
-                <div className="absolute -right-1.5 inset-y-0 flex flex-col justify-around py-4">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
-                    className={`w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-500 border-emerald-500' : 'border-emerald-500 hover:bg-emerald-50'}`}
-                    title="True Path"
-                  />
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
-                    className={`w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-500 border-red-500' : 'border-red-500 hover:bg-red-50'}`}
-                    title="False Path"
-                  />
-                </div>
+                <>
+                  {/* Horizontal Condition Ports */}
+                  <div className={`absolute -right-1.5 inset-y-0 flex flex-col justify-around py-4 transition-opacity duration-300 ${layoutDirection === 'horizontal' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
+                      className={`port-connector w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-500 border-emerald-500' : 'border-emerald-500 hover:bg-emerald-50 shadow-emerald-100'}`}
+                      title="True Path"
+                    />
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
+                      className={`port-connector w-3 h-3 -mr-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-500 border-red-500' : 'border-red-500 hover:bg-red-50 shadow-red-100'}`}
+                      title="False Path"
+                    />
+                  </div>
+                  {/* Vertical Condition Ports */}
+                  <div className={`absolute -bottom-1.5 inset-x-0 flex justify-around px-12 transition-opacity duration-300 ${layoutDirection === 'vertical' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
+                      className={`port-connector w-3 h-3 -mb-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-500 border-emerald-500' : 'border-emerald-500 hover:bg-emerald-50 shadow-emerald-100'}`}
+                      title="True Path"
+                    />
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); startLinking(node.id, 'false'); }}
+                      className={`port-connector w-3 h-3 -mb-1.5 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'false' ? 'bg-red-500 border-red-500' : 'border-red-500 hover:bg-red-50 shadow-red-100'}`}
+                      title="False Path"
+                    />
+                  </div>
+                </>
               ) : node.type !== 'output' ? (
-                <div className="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 border-slate-200 rounded-full group-hover:border-teal-400 transition-colors" />
+                <>
+                  {/* Right Port */}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
+                    className={`port-connector absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-400 z-20 scale-110 shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'} ${linkingSource?.id === node.id ? 'bg-teal-500 border-teal-500' : ''}`}
+                  />
+                  {/* Bottom Port */}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); startLinking(node.id); }}
+                    className={`port-connector absolute left-1/2 -bottom-1.5 -translate-x-1/2 w-3 h-3 bg-white border-2 rounded-full transition-all hover:scale-125 shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-400 z-20 scale-110 shadow-teal-100' : 'border-slate-200 opacity-20 scale-75'} ${linkingSource?.id === node.id ? 'bg-teal-500 border-teal-500' : ''}`}
+                  />
+                </>
               ) : null}
             </motion.div>
           ))}
