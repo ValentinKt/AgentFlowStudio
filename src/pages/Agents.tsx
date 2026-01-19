@@ -21,7 +21,9 @@ import {
   TrendingUp,
   DollarSign,
   Scale,
-  Edit2
+  Edit2,
+  Download,
+  Upload
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
 import { Agent, AgentRole } from '../types';
@@ -145,6 +147,65 @@ const Agents: React.FC = () => {
     }
   };
 
+  const handleExportAgent = (agent: Agent) => {
+    const exportPayload = {
+      name: agent.name,
+      role: agent.role,
+      priority: agent.priority,
+      capabilities: agent.capabilities,
+      system_prompt: agent.system_prompt || '',
+      model_config: agent.model_config || {},
+      working_memory: agent.working_memory || '',
+      facts: agent.facts || {},
+      is_active: agent.is_active,
+    };
+    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(exportPayload, null, 2))}`;
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('download', `${agent.name.replace(/\s+/g, '_')}_agent.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    addNotification('success', `Exported ${agent.name}.`);
+  };
+
+  const handleImportAgent = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const raw = JSON.parse(event.target?.result as string);
+        const candidate = raw?.agent ?? raw;
+        const role =
+          typeof candidate?.role === 'string' && candidate.role in roleIcons
+            ? (candidate.role as AgentRole)
+            : 'prompter';
+        const payload = {
+          name: typeof candidate?.name === 'string' && candidate.name.trim().length > 0 ? candidate.name.trim() : 'Imported Agent',
+          role,
+          priority: typeof candidate?.priority === 'number' && Number.isFinite(candidate.priority) ? candidate.priority : 5,
+          capabilities: Array.isArray(candidate?.capabilities)
+            ? candidate.capabilities.filter((cap: unknown) => typeof cap === 'string')
+            : [],
+          is_active: typeof candidate?.is_active === 'boolean' ? candidate.is_active : true,
+          system_prompt: typeof candidate?.system_prompt === 'string' ? candidate.system_prompt : '',
+          model_config: typeof candidate?.model_config === 'object' && candidate.model_config ? candidate.model_config : {},
+          working_memory: typeof candidate?.working_memory === 'string' ? candidate.working_memory : '',
+          facts: typeof candidate?.facts === 'object' && candidate.facts ? candidate.facts : {},
+        };
+        await addAgent(payload);
+        addNotification('success', `Imported ${payload.name}.`);
+      } catch (err) {
+        addNotification('error', 'Failed to import agent. Invalid JSON format.');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const filteredAgents = agents.filter(agent => 
     agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     agent.role.toLowerCase().includes(searchTerm.toLowerCase())
@@ -164,6 +225,11 @@ const Agents: React.FC = () => {
           />
         </div>
         <div className="flex gap-2">
+          <label className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-50 shadow-sm transition-all cursor-pointer">
+            <Upload size={18} />
+            Import Agent
+            <input type="file" accept=".json" onChange={handleImportAgent} className="hidden" />
+          </label>
           <button
             onClick={async () => {
               const coreRoles: AgentRole[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
@@ -262,6 +328,13 @@ const Agents: React.FC = () => {
                           title="Edit Agent"
                         >
                         <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleExportAgent(agent)}
+                        className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
+                        title="Export Agent"
+                      >
+                        <Download size={18} />
                       </button>
                       <button
                         onClick={() => toggleAgentStatus(agent.id)}
