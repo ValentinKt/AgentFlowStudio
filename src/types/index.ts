@@ -1,4 +1,25 @@
-export type AgentRole = 'global_manager' | 'prompter' | 'developer' | 'ui_generator' | 'prompt_manager' | 'diagram_generator' | 'trigger' | 'evaluator' | 'output' | 'prompt_retriever' | 'local_deployer';
+export type AgentRole = 
+  | 'global_manager' 
+  | 'prompter' 
+  | 'developer' 
+  | 'ui_generator' 
+  | 'prompt_manager' 
+  | 'diagram_generator' 
+  | 'trigger' 
+  | 'evaluator' 
+  | 'output' 
+  | 'prompt_retriever' 
+  | 'local_deployer'
+  | 'data_analyst'
+  | 'security_auditor'
+  | 'content_writer'
+  | 'qa_engineer'
+  | 'devops_specialist'
+  | 'research_assistant'
+  | 'customer_support'
+  | 'marketing_strategist'
+  | 'financial_advisor'
+  | 'legal_consultant';
 
 export interface Agent {
   id: string;

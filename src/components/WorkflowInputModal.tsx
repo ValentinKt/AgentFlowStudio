@@ -5,12 +5,21 @@ import { Send, X, HelpCircle, CheckCircle2 } from 'lucide-react';
 
 export const WorkflowInputModal: React.FC = () => {
   const { pendingInput, provideInput } = useWorkflowStore();
-  const [value, setValue] = useState<string>('');
+  const [value, setValue] = useState<any>('');
+  const [multiValues, setMultiValues] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (pendingInput) {
-      setValue('');
+      if (pendingInput.type === 'multi') {
+        const initial: Record<string, any> = {};
+        pendingInput.fields?.forEach(f => {
+          initial[f.key] = f.defaultValue ?? '';
+        });
+        setMultiValues(initial);
+      } else {
+        setValue('');
+      }
       setError(null);
     }
   }, [pendingInput]);
@@ -19,11 +28,19 @@ export const WorkflowInputModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pendingInput.type === 'text' && !value.trim()) {
-      setError('This field is required');
-      return;
+    if (pendingInput.type === 'multi') {
+      provideInput(multiValues);
+    } else {
+      if (pendingInput.type === 'text' && !value.trim()) {
+        setError('This field is required');
+        return;
+      }
+      provideInput(value);
     }
-    provideInput(value);
+  };
+
+  const updateMultiValue = (key: string, val: any) => {
+    setMultiValues(prev => ({ ...prev, [key]: val }));
   };
 
   return (
@@ -114,6 +131,61 @@ export const WorkflowInputModal: React.FC = () => {
                   >
                     <X className="w-4 h-4" /> No
                   </button>
+                </div>
+              )}
+
+              {pendingInput.type === 'multi' && (
+                <div className="space-y-4">
+                  {pendingInput.fields?.map((field) => (
+                    <div key={field.key} className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        {field.label}
+                      </label>
+                      {field.type === 'select' ? (
+                        <select
+                          value={multiValues[field.key] || ''}
+                          onChange={(e) => updateMultiValue(field.key, e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 outline-none transition-all shadow-sm appearance-none cursor-pointer text-sm"
+                        >
+                          <option value="">Select...</option>
+                          {field.options?.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      ) : field.type === 'boolean' ? (
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateMultiValue(field.key, true)}
+                            className={`flex-1 py-2 px-3 rounded-lg flex items-center justify-center gap-2 font-bold text-xs transition-all ${multiValues[field.key] === true ? 'bg-teal-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-teal-500'}`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateMultiValue(field.key, false)}
+                            className={`flex-1 py-2 px-3 rounded-lg flex items-center justify-center gap-2 font-bold text-xs transition-all ${multiValues[field.key] === false ? 'bg-slate-700 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-700'}`}
+                          >
+                            <X className="w-3.5 h-3.5" /> No
+                          </button>
+                        </div>
+                      ) : field.type === 'number' ? (
+                        <input
+                          type="number"
+                          value={multiValues[field.key] || ''}
+                          onChange={(e) => updateMultiValue(field.key, e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 outline-none transition-all shadow-sm text-sm"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={multiValues[field.key] || ''}
+                          onChange={(e) => updateMultiValue(field.key, e.target.value)}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 outline-none transition-all shadow-sm text-sm"
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 
