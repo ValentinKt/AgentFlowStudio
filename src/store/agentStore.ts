@@ -22,12 +22,16 @@ const normalizeAgentRow = (row: unknown): Agent => {
   const capabilities = parseJsonValue<string[]>(r.capabilities, []);
   const performance = parseJsonValue<Record<string, unknown>>(r.performance, {});
   const model_config = parseJsonValue<Record<string, unknown>>(r.model_config, {});
+  const facts = parseJsonValue<Record<string, unknown>>(r.facts, {});
+  const working_memory = typeof r.working_memory === 'string' ? r.working_memory : '';
 
   return {
     ...(r as unknown as Agent),
     capabilities,
     performance,
     model_config,
+    facts,
+    working_memory,
   };
 };
 
@@ -39,10 +43,12 @@ interface AgentState {
   fetchAgents: () => Promise<void>;
   addAgent: (agent: Omit<Agent, 'id' | 'created_at' | 'user_id'>) => Promise<void>;
   updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
+  applyAgentMemory: (id: string, working_memory: string, facts: Record<string, unknown>) => void;
   deleteAgent: (id: string) => Promise<void>;
   toggleAgentStatus: (id: string) => Promise<void>;
   simulateLearning: (id: string, success: boolean) => Promise<void>;
   executeAgentTask: (id: string, task: string, context?: Record<string, any>) => Promise<any>;
+  suggestAgents: (params: { role?: string; text?: string; limit?: number }) => Array<{ agent: Agent; score: number }>;
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -82,7 +88,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const ollamaReady = await initializeOllamaAgent(agent.name);
       
       const result = await db.query(
-        'INSERT INTO agents (name, role, capabilities, priority, is_active, user_id, system_prompt, model_config) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        'INSERT INTO agents (name, role, capabilities, priority, is_active, user_id, system_prompt, model_config, working_memory, facts) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
         [
           agent.name, 
           agent.role, 
@@ -91,7 +97,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           agent.is_active !== false, 
           user.id,
           agent.system_prompt || '',
-          JSON.stringify(agent.model_config || { model_name: 'gemini-3-flash-preview' })
+          JSON.stringify(agent.model_config || { model_name: 'gemini-3-flash-preview' }),
+          agent.working_memory || '',
+          JSON.stringify(agent.facts || {})
         ]
       );
 
@@ -149,6 +157,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  applyAgentMemory: (id, working_memory, facts) => {
+    set((state) => {
+      const existing = state.agents.find((a) => a.id === id);
+      if (!existing) return state;
+
+      const updatedAgent: Agent = {
+        ...existing,
+        working_memory,
+        facts,
+      };
+
+      const nextAgents = state.agents.map((a) => (a.id === id ? updatedAgent : a));
+      const nextGraphs = { ...state.agentGraphs };
+
+      if (updatedAgent.is_active) {
+        nextGraphs[id] = new ActionGraph(updatedAgent);
+      } else {
+        delete nextGraphs[id];
+      }
+
+      return { ...state, agents: nextAgents, agentGraphs: nextGraphs };
+    });
+  },
+
   deleteAgent: async (id) => {
     set({ isLoading: true, error: null });
     try {
@@ -198,9 +230,103 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set(state => ({
         agentGraphs: { ...state.agentGraphs, [id]: newGraph }
       }));
-      return newGraph.execute(task, context);
+      const result = await newGraph.execute(task, context);
+      const lastMessageRaw = Array.isArray(result?.messages) ? result.messages[result.messages.length - 1] : undefined;
+      const lastMessage =
+        typeof lastMessageRaw === 'string'
+          ? lastMessageRaw
+          : lastMessageRaw !== undefined
+            ? JSON.stringify(lastMessageRaw)
+            : '';
+      const workingMemory = lastMessage.slice(0, 800);
+
+      let facts: Record<string, unknown> | undefined;
+      const trimmed = lastMessage.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            facts = parsed as Record<string, unknown>;
+          }
+        } catch (_e) {
+          void _e;
+        }
+      }
+
+      get().applyAgentMemory(id, workingMemory, facts ?? (agent.facts as Record<string, unknown> | undefined) ?? {});
+      return result;
     }
     
-    return graph.execute(task, context);
+    const agent = get().agents.find((a) => a.id === id);
+    const result = await graph.execute(task, context);
+    if (agent) {
+      const lastMessageRaw = Array.isArray(result?.messages) ? result.messages[result.messages.length - 1] : undefined;
+      const lastMessage =
+        typeof lastMessageRaw === 'string'
+          ? lastMessageRaw
+          : lastMessageRaw !== undefined
+            ? JSON.stringify(lastMessageRaw)
+            : '';
+      const workingMemory = lastMessage.slice(0, 800);
+
+      let facts: Record<string, unknown> | undefined;
+      const trimmed = lastMessage.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            facts = parsed as Record<string, unknown>;
+          }
+        } catch (_e) {
+          void _e;
+        }
+      }
+
+      get().applyAgentMemory(id, workingMemory, facts ?? (agent.facts as Record<string, unknown> | undefined) ?? {});
+    }
+    return result;
+  },
+
+  suggestAgents: ({ role, text, limit = 5 }) => {
+    const normalize = (value: string) =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const tokens = new Set<string>(
+      normalize(`${text ?? ''} ${role ?? ''}`)
+        .split(' ')
+        .filter(Boolean)
+    );
+
+    const scored = get()
+      .agents
+      .filter((a) => a.is_active)
+      .map((agent) => {
+        let score = 0;
+
+        if (role && agent.role === role) score += 50;
+        if (role && agent.role !== role && agent.role.includes(role)) score += 20;
+
+        const caps = Array.isArray(agent.capabilities) ? agent.capabilities : [];
+        for (const cap of caps) {
+          const capTokens = normalize(cap).split(' ').filter(Boolean);
+          for (const t of capTokens) {
+            if (tokens.has(t)) {
+              score += 10;
+              break;
+            }
+          }
+        }
+
+        score += Math.max(0, Math.min(10, Number(agent.priority) || 0));
+
+        return { agent, score };
+      })
+      .sort((a, b) => b.score - a.score || b.agent.priority - a.agent.priority);
+
+    return scored.slice(0, Math.max(1, limit));
   },
 }));

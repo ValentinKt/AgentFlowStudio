@@ -1,13 +1,8 @@
 import { ChatOllama } from "@langchain/ollama";
 import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
 import { Agent, AgentRole } from "../types";
-
-// Configuration globale Ollama
-export const OLLAMA_MODEL = "gemini-3-flash-preview";
-export const OLLAMA_BASE_URL =
-  typeof window === "undefined"
-    ? "http://localhost:11434"
-    : `${window.location.origin}/ollama`;
+import { OLLAMA_BASE_URL, OLLAMA_MODEL } from "./ollama";
+import { db } from "./db";
 
 /**
  * Schéma de base de l'état pour les graphes LangGraph
@@ -88,6 +83,41 @@ export abstract class BaseWorkflowGraph {
     try {
       const result = await app.invoke(initialState);
       console.log(`🏁 [FINISH EXECUTION] Agent: ${agentName} completed successfully.`);
+      if (this.agent.id) {
+        const lastMessageRaw = Array.isArray(result?.messages) ? result.messages[result.messages.length - 1] : undefined;
+        const lastMessage =
+          typeof lastMessageRaw === "string"
+            ? lastMessageRaw
+            : lastMessageRaw !== undefined
+              ? JSON.stringify(lastMessageRaw)
+              : "";
+        const workingMemory = lastMessage.slice(0, 800);
+
+        let facts: Record<string, unknown> | undefined;
+        if (typeof lastMessage === "string") {
+          const trimmed = lastMessage.trim();
+          if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+              const parsed = JSON.parse(trimmed) as unknown;
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                facts = parsed as Record<string, unknown>;
+              }
+            } catch (_e) {
+              void _e;
+            }
+          }
+        }
+
+        const nextFacts = facts ?? (this.agent.facts as Record<string, unknown> | undefined) ?? {};
+        await db.query("UPDATE agents SET working_memory = $2, facts = $3 WHERE id = $1", [
+          this.agent.id,
+          workingMemory,
+          JSON.stringify(nextFacts),
+        ]);
+
+        this.agent.working_memory = workingMemory;
+        this.agent.facts = nextFacts as any;
+      }
       return result;
     } catch (error) {
       console.error(`\n❌ [CRITICAL ERROR] Execution failed for ${agentName}:`, error);
@@ -105,9 +135,14 @@ export abstract class BaseWorkflowGraph {
   ) {
     const agentName = this.agent.name || "Unknown Agent";
     const agentRole = this.agent.role || "Unknown Role";
+    const mergedContext = {
+      ...(context || {}),
+      agent_memory: this.agent.working_memory || "",
+      agent_facts: (this.agent.facts as Record<string, unknown> | undefined) || {},
+    };
     const contextString =
-      context && Object.keys(context).length > 0
-        ? JSON.stringify(context, null, 2).slice(0, 12_000)
+      Object.keys(mergedContext).length > 0
+        ? JSON.stringify(mergedContext, null, 2).slice(0, 12_000)
         : "";
     const effectiveUserPrompt =
       contextString.length > 0 ? `${userPrompt}\n\nContext:\n${contextString}` : userPrompt;
@@ -209,27 +244,52 @@ export class ActionGraph extends BaseWorkflowGraph {
 export class ConditionGraph extends BaseWorkflowGraph {
   buildGraph() {
     const evaluateNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `You are a critical evaluator. Analyze the situation and decide if the condition is met.
-      Respond ONLY with a JSON object: {"decision": true/false, "reasoning": "your explanation"}.`;
-      
-      const content = await this.invokeModel(
-        systemPrompt,
-        `Evaluate this condition: ${state.currentTask}`,
-        state.context
-      );
-      
-      let decision = false;
-      try {
-        const jsonMatch = (content as string).match(/\{[\s\S]*\}/);
-        const data = JSON.parse(jsonMatch ? jsonMatch[0] : (content as string));
-        decision = data.decision;
-      } catch (e) {
-        decision = (content as string).toLowerCase().includes("true");
+      const systemPrompt = `You are a critical evaluator. Decide if the condition is met.
+Return ONLY valid JSON with this exact shape:
+{"decision": true|false, "reasoning": "string"}`;
+
+      const parseDecision = (raw: string) => {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        if (start === -1 || end === -1 || end <= start) return null;
+        const candidate = raw.slice(start, end + 1);
+        try {
+          const parsed = JSON.parse(candidate) as unknown;
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+          const record = parsed as Record<string, unknown>;
+          if (typeof record.decision !== 'boolean') return null;
+          if (typeof record.reasoning !== 'string') return null;
+          return { decision: record.decision as boolean, reasoning: record.reasoning as string, raw: candidate };
+        } catch {
+          return null;
+        }
+      };
+
+      const runOnce = async (prompt: string) =>
+        String(
+          await this.invokeModel(systemPrompt, prompt, state.context)
+        );
+
+      const first = await runOnce(`Evaluate this condition:\n${state.currentTask}`);
+      let parsed = parseDecision(first);
+
+      if (!parsed) {
+        const retry = await runOnce(
+          `Your previous response was invalid JSON for the required schema.\n` +
+            `Return ONLY valid JSON matching {"decision": true|false, "reasoning": "string"}.\n\n` +
+            `Condition:\n${state.currentTask}\n\n` +
+            `Previous response:\n${first}`
+        );
+        parsed = parseDecision(retry);
+      }
+
+      if (!parsed) {
+        throw new Error('ConditionGraph: invalid JSON decision after retry');
       }
       
       return {
-        messages: [content as string],
-        context: { decision },
+        messages: [parsed.raw as string],
+        context: { decision: parsed.decision, reasoning: parsed.reasoning },
         status: "completed",
       };
     };

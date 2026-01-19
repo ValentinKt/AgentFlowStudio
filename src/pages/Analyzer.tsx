@@ -18,6 +18,7 @@ import VoiceInput from '../components/VoiceInput';
 import ImageUpload from '../components/ImageUpload';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotificationStore } from '../store/notificationStore';
+import { useAgentStore } from '../store/agentStore';
 
 const PROMPT_TEMPLATES = [
   { id: '1', name: 'Software Dev', text: 'Build a React frontend with a Supabase backend and implement user authentication.' },
@@ -28,6 +29,7 @@ const PROMPT_TEMPLATES = [
 const Analyzer: React.FC = () => {
   const { globalPrompt, decomposition, history, isLoading, setGlobalPrompt, decomposePrompt, fetchHistory } = usePromptStore();
   const { addNotification } = useNotificationStore();
+  const { agents, fetchAgents, suggestAgents } = useAgentStore();
   const [viewMode, setViewMode] = useState<'visual' | 'table'>('visual');
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -35,6 +37,12 @@ const Analyzer: React.FC = () => {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  useEffect(() => {
+    if (agents.length === 0) {
+      fetchAgents();
+    }
+  }, [agents.length, fetchAgents]);
 
   const handleDecompose = async () => {
     if (!globalPrompt.trim() && !selectedImage) return;
@@ -60,17 +68,51 @@ const Analyzer: React.FC = () => {
 
   const generateMermaidChart = () => {
     if (decomposition.length === 0) return '';
-    let chart = 'graph TD\n';
-    chart += '  GP[🌍 Global Prompt] --> B[🧠 Orchestrator]\n';
-    decomposition.forEach(task => {
+
+    const safeId = (value: string) => {
+      const cleaned = value
+        .trim()
+        .replace(/[^a-zA-Z0-9_]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const ensured = cleaned.length > 0 ? cleaned : 'node';
+      return /^[a-zA-Z]/.test(ensured) ? ensured : `N_${ensured}`;
+    };
+
+    const safeLabel = (value: string) =>
+      value
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/[{}<>]/g, '')
+        .split('[')
+        .join('')
+        .split(']')
+        .join('')
+        .replace(/"/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const idMap = new Map<string, string>();
+    for (const task of decomposition) {
+      idMap.set(task.id, safeId(task.id));
+    }
+
+    let chart = 'flowchart TD\n';
+    chart += '  GP[Global Prompt] --> ORCH[Orchestrator]\n';
+
+    for (const task of decomposition) {
+      const nodeId = idMap.get(task.id) ?? safeId(task.id);
+      const label = safeLabel(task.task);
+
       if (task.dependencies.length === 0) {
-        chart += `  B --> ${task.id}[${task.task}]\n`;
-      } else {
-        task.dependencies.forEach(dep => {
-          chart += `  ${dep} --> ${task.id}[${task.task}]\n`;
-        });
+        chart += `  ORCH --> ${nodeId}["${label}"]\n`;
+        continue;
       }
-    });
+
+      for (const dep of task.dependencies) {
+        const depId = idMap.get(dep) ?? safeId(dep);
+        chart += `  ${depId} --> ${nodeId}["${label}"]\n`;
+      }
+    }
+
     return chart;
   };
 
@@ -179,9 +221,23 @@ const Analyzer: React.FC = () => {
                           <tr className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-6 py-4 font-medium text-slate-800">{task.task}</td>
                             <td className="px-6 py-4">
-                              <span className="px-2.5 py-1 bg-teal-50 text-teal-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                                {task.agent_role.replace('_', ' ')}
-                              </span>
+                              {(() => {
+                                const suggestion = suggestAgents({
+                                  role: task.agent_role,
+                                  text: task.task,
+                                  limit: 1,
+                                })[0]?.agent;
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <span className="inline-flex w-fit px-2.5 py-1 bg-teal-50 text-teal-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                                      {task.agent_role.replace('_', ' ')}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                      {suggestion ? suggestion.name : 'No matching agent'}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-6 py-4 text-slate-500">
                               {task.dependencies.length > 0 ? task.dependencies.join(', ') : 'None'}

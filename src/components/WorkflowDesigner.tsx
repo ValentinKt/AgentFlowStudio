@@ -38,6 +38,7 @@ interface Node {
     outputType?: 'email' | 'slack' | 'database';
     inputType?: 'text' | 'number' | 'select' | 'boolean';
     options?: string[]; // For select type
+    key?: string;
   };
 }
 
@@ -66,6 +67,38 @@ type FeedbackLog = {
   nodeLabel?: string;
   agentName?: string;
   content: string;
+};
+
+const messageToString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const deriveWorkingMemoryAndFacts = (
+  lastMessage: unknown,
+  previousFacts: Record<string, unknown> | undefined
+): { working_memory: string; facts: Record<string, unknown> } => {
+  const text = messageToString(lastMessage);
+  const working_memory = text.slice(0, 800);
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { working_memory, facts: parsed as Record<string, unknown> };
+      }
+    } catch (_e) {
+      void _e;
+    }
+  }
+
+  return { working_memory, facts: previousFacts ?? {} };
 };
 
 const formatTime = (ts: number) => {
@@ -130,8 +163,17 @@ const MarkdownView: React.FC<{ content: string }> = ({ content }) => {
 };
 
 const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, onSave }) => {
-  const { agents, fetchAgents } = useAgentStore();
-  const { activeNodeId: globalActiveNodeId, isExecuting: globalIsExecuting, pendingInput, provideInput } = useWorkflowStore();
+  const { agents, fetchAgents, suggestAgents } = useAgentStore();
+  const {
+    activeNodeId: globalActiveNodeId,
+    isExecuting: globalIsExecuting,
+    executionStatus,
+    pauseExecution,
+    resumeExecution,
+    cancelExecution,
+    pendingInput,
+    provideInput,
+  } = useWorkflowStore();
   const [nodes, setNodes] = useState<Node[]>(workflow.configuration?.nodes || [
     { id: '1', label: 'Start Node', type: 'trigger', x: 100, y: 100 }
   ]);
@@ -151,6 +193,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('vertical');
   const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'paused' | 'cancelling'>('idle');
   const [activeNodeIdLocal, setActiveNodeIdLocal] = useState<string | null>(null);
   const [feedbackLogs, setFeedbackLogs] = useState<FeedbackLog[]>([]);
   const feedbackEndRef = useRef<HTMLDivElement>(null);
@@ -158,14 +201,21 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   // Use global execution state if active, otherwise fallback to local simulation
   const effectiveActiveNodeId = globalIsExecuting ? globalActiveNodeId : activeNodeIdLocal;
   const effectiveIsExecuting = globalIsExecuting || isSimulating;
+  const effectiveExecutionStatus = globalIsExecuting ? executionStatus : simulationStatus;
   const shouldShowFeedbackPanel = effectiveIsExecuting || feedbackLogs.length > 0;
 
   const stopSimulationRef = useRef(false);
+  const simulationStatusRef = useRef<'idle' | 'running' | 'paused' | 'cancelling'>('idle');
   const canvasRef = useRef<HTMLDivElement>(null);
+  const getSimulationStatus = () => simulationStatusRef.current;
 
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  useEffect(() => {
+    simulationStatusRef.current = simulationStatus;
+  }, [simulationStatus]);
 
   const appendFeedbackLog = (log: Omit<FeedbackLog, 'id' | 'ts'> & Partial<Pick<FeedbackLog, 'ts'>>) => {
     const id = Math.random().toString(36).slice(2, 10);
@@ -198,6 +248,23 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   };
 
   const selectedNode = nodes.find(n => n.id === selectedNodeId);
+  const suggestedAgent =
+    selectedNode && (!selectedNode.agentId || selectedNode.agentId.length === 0)
+      ? suggestAgents({
+          role:
+            selectedNode.type === 'trigger'
+              ? 'trigger'
+              : selectedNode.type === 'input'
+                ? 'input'
+                : selectedNode.type === 'condition'
+                  ? 'evaluator'
+                  : selectedNode.type === 'output'
+                    ? 'output'
+                    : 'developer',
+          text: `${selectedNode.label} ${selectedNode.description ?? ''}`,
+          limit: 1,
+        })[0]?.agent
+      : undefined;
 
   const addNode = (type: Node['type'] = 'action') => {
     const newNode: Node = {
@@ -249,16 +316,52 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     onSave({ nodes, edges });
   };
 
+  const handlePause = () => {
+    if (globalIsExecuting) {
+      pauseExecution();
+      return;
+    }
+    if (!isSimulating) return;
+    if (getSimulationStatus() !== 'running') return;
+    setSimulationStatus('paused');
+    appendFeedbackLog({ kind: 'info', content: 'Paused.' });
+  };
+
+  const handleResume = () => {
+    if (globalIsExecuting) {
+      resumeExecution();
+      return;
+    }
+    if (!isSimulating) return;
+    if (getSimulationStatus() !== 'paused') return;
+    setSimulationStatus('running');
+    appendFeedbackLog({ kind: 'info', content: 'Resumed.' });
+  };
+
+  const handleCancel = () => {
+    if (globalIsExecuting) {
+      cancelExecution();
+      return;
+    }
+    if (!isSimulating) return;
+    setSimulationStatus('cancelling');
+    stopSimulationRef.current = true;
+    useWorkflowStore.setState({ pendingInput: null });
+    appendFeedbackLog({ kind: 'info', content: 'Cancelling…' });
+  };
+
   const runSimulation = async () => {
     if (effectiveIsExecuting) {
-      stopSimulationRef.current = true;
-      if (isSimulating) {
-        appendFeedbackLog({ kind: 'info', content: 'Stop requested.' });
+      if (globalIsExecuting) {
+        handleCancel();
+      } else {
+        handleCancel();
       }
       return;
     }
 
     setIsSimulating(true);
+    setSimulationStatus('running');
     stopSimulationRef.current = false;
     setFeedbackLogs([]);
     appendFeedbackLog({ kind: 'info', content: `Workflow started: **${workflow.name}**` });
@@ -272,21 +375,30 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     if (!triggerNode) {
       alert('No trigger node found to start the workflow.');
       setIsSimulating(false);
+      setSimulationStatus('idle');
       return;
     }
 
     let currentNodeId: string | null = triggerNode.id;
     const visited = new Set<string>();
     let currentContext: Record<string, unknown> = {};
+    const outputOrder: string[] = [];
 
     try {
       while (currentNodeId && !stopSimulationRef.current) {
+        while (getSimulationStatus() === 'paused' && !stopSimulationRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        if (getSimulationStatus() === 'cancelling') break;
+
         setActiveNodeIdLocal(currentNodeId);
         
         const currentNode = nodes.find(n => n.id === currentNodeId);
         if (!currentNode) break;
 
         let graphResult: any = null;
+        let agentName: string | undefined;
+        let resolvedAgent: (typeof agents)[number] | undefined;
 
         if (currentNode.type === 'input') {
           appendFeedbackLog({
@@ -296,17 +408,33 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             content: `Waiting for input: **${currentNode.label}**`,
           });
           const userInput = await new Promise((resolve) => {
+            let isResolved = false;
+            const resolveOnce = (value: any) => {
+              if (isResolved) return;
+              isResolved = true;
+              clearInterval(cancelPoll);
+              resolve(value);
+            };
+
+            const cancelPoll = setInterval(() => {
+              if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') {
+                useWorkflowStore.setState({ pendingInput: null });
+                resolveOnce(undefined);
+              }
+            }, 200);
+
             useWorkflowStore.setState({
               pendingInput: {
                 nodeId: currentNode.id,
                 label: currentNode.label,
                 type: currentNode.config?.inputType || 'text',
                 options: currentNode.config?.options,
-                resolve
+                resolve: resolveOnce
               }
             });
           });
-          console.log(`Simulation input received for ${currentNode.label}:`, userInput);
+          if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') break;
+
           currentContext = { ...currentContext, [currentNode.label || currentNode.id]: userInput };
           appendFeedbackLog({
             kind: 'input',
@@ -314,14 +442,68 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
             nodeLabel: currentNode.label,
             content: `Input received for **${currentNode.label}**:\n\n\`\`\`\n${String(userInput)}\n\`\`\``,
           });
-        } else {
-          const agent = currentNode.agentId ? agents.find(a => a.id === currentNode.agentId) : undefined;
+
+          const store = useAgentStore.getState();
+          const availableAgents = store.agents;
+          const agent =
+            currentNode.agentId && currentNode.agentId.length > 0
+              ? availableAgents.find((a) => a.id === currentNode.agentId)
+              : store.suggestAgents({
+                  role: 'input',
+                  text: `${currentNode.label} ${currentNode.description ?? ''}`,
+                  limit: 1,
+                })[0]?.agent;
+          agentName = agent?.name;
+          resolvedAgent = agent;
+
           appendFeedbackLog({
             kind: 'info',
             nodeId: currentNode.id,
             nodeLabel: currentNode.label,
-            agentName: agent?.name,
-            content: `Running **${currentNode.type}**: **${currentNode.label}**${agent?.name ? ` (Agent: **${agent.name}**)` : ''}`,
+            agentName,
+            content: `Processing **${currentNode.type}**: **${currentNode.label}**${agentName ? ` (Agent: **${agentName}**)` : ''}`,
+          });
+
+          const graph = new InputGraph(agent || { name: 'User Input', role: 'input' as any });
+          try {
+            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext);
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            appendFeedbackLog({
+              kind: 'error',
+              nodeId: currentNode.id,
+              nodeLabel: currentNode.label,
+              agentName,
+              content: `Error while running **${currentNode.label}**:\n\n\`\`\`\n${message}\n\`\`\``,
+            });
+            break;
+          }
+        } else {
+          const store = useAgentStore.getState();
+          const availableAgents = store.agents;
+          const agent =
+            currentNode.agentId && currentNode.agentId.length > 0
+              ? availableAgents.find((a) => a.id === currentNode.agentId)
+              : store.suggestAgents({
+                  role:
+                    currentNode.type === 'trigger'
+                      ? 'trigger'
+                      : currentNode.type === 'condition'
+                        ? 'evaluator'
+                        : currentNode.type === 'output'
+                          ? 'output'
+                          : 'developer',
+                  text: `${currentNode.label} ${currentNode.description ?? ''}`,
+                  limit: 1,
+                })[0]?.agent;
+          agentName = agent?.name;
+          resolvedAgent = agent;
+          appendFeedbackLog({
+            kind: 'info',
+            nodeId: currentNode.id,
+            nodeLabel: currentNode.label,
+            agentName,
+            content: `Running **${currentNode.type}**: **${currentNode.label}**${agentName ? ` (Agent: **${agentName}**)` : ''}`,
           });
           const graph =
             currentNode.type === 'trigger'
@@ -340,30 +522,46 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               kind: 'error',
               nodeId: currentNode.id,
               nodeLabel: currentNode.label,
-              agentName: agent?.name,
+              agentName,
               content: `Error while running **${currentNode.label}**:\n\n\`\`\`\n${message}\n\`\`\``,
             });
             break;
           }
-          const lastMessage = graphResult.messages?.[graphResult.messages.length - 1];
-          const lastMessageText =
-            typeof lastMessage === 'string' ? lastMessage : JSON.stringify(lastMessage, null, 2);
-
-          console.log(`Agent ${agent?.name || 'System'} output:`, lastMessage);
-          currentContext = {
-            ...currentContext,
-            ...(graphResult.context || {}),
-            [`node:${currentNode.id}:output`]: lastMessage,
-            lastOutput: lastMessage,
-          };
-          appendFeedbackLog({
-            kind: 'output',
-            nodeId: currentNode.id,
-            nodeLabel: currentNode.label,
-            agentName: agent?.name,
-            content: lastMessageText || '_No output_',
-          });
         }
+
+        if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') break;
+
+        const lastMessage = graphResult?.messages?.[graphResult.messages.length - 1];
+        const lastMessageText = messageToString(lastMessage);
+
+        const store = useAgentStore.getState();
+        if (resolvedAgent?.id) {
+          const derived = deriveWorkingMemoryAndFacts(lastMessage, resolvedAgent.facts as Record<string, unknown> | undefined);
+          store.applyAgentMemory(resolvedAgent.id, derived.working_memory, derived.facts);
+        }
+
+        currentContext = {
+          ...currentContext,
+          ...(graphResult?.context || {}),
+          [`node:${currentNode.id}:output`]: lastMessage,
+          lastOutput: lastMessage,
+        };
+
+        outputOrder.push(currentNode.id);
+        const MAX_NODE_OUTPUTS = 6;
+        while (outputOrder.length > MAX_NODE_OUTPUTS) {
+          const oldNodeId = outputOrder.shift();
+          if (!oldNodeId) break;
+          delete currentContext[`node:${oldNodeId}:output`];
+        }
+
+        appendFeedbackLog({
+          kind: 'output',
+          nodeId: currentNode.id,
+          nodeLabel: currentNode.label,
+          agentName,
+          content: lastMessageText || '_No output_',
+        });
 
         if (stopSimulationRef.current) break;
 
@@ -392,15 +590,16 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
         await new Promise(resolve => setTimeout(resolve, 250));
       }
     } finally {
-      const wasStopped = stopSimulationRef.current;
+      const wasStopped = stopSimulationRef.current || simulationStatusRef.current === 'cancelling';
       setActiveNodeIdLocal(null);
       setIsSimulating(false);
+      setSimulationStatus('idle');
       stopSimulationRef.current = false;
       // Clear pending input if we stop
       useWorkflowStore.setState({ pendingInput: null });
       appendFeedbackLog({
         kind: 'info',
-        content: wasStopped ? 'Workflow stopped.' : 'Workflow finished.',
+        content: wasStopped ? 'Workflow cancelled.' : 'Workflow finished.',
       });
     }
   };
@@ -744,6 +943,11 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                         <option key={agent.id} value={agent.id}>{agent.name} ({agent.role.replace('_', ' ')})</option>
                       ))}
                     </select>
+                    {suggestedAgent ? (
+                      <div className="text-[11px] text-slate-500">
+                        Suggested: <span className="font-semibold text-slate-700">{suggestedAgent.name}</span>
+                      </div>
+                    ) : null}
                   </div>
 
                   {selectedNode.type === 'trigger' && (
@@ -763,6 +967,18 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
                   {selectedNode.type === 'input' && (
                     <div className="space-y-4 pt-2 border-t border-slate-100">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Context Key</label>
+                        <input
+                          type="text"
+                          value={selectedNode.config?.key || ''}
+                          onChange={(e) =>
+                            updateNode(selectedNode.id, { config: { ...selectedNode.config, key: e.target.value } })
+                          }
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                          placeholder="e.g. user_name"
+                        />
+                      </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-slate-500 uppercase">Input Type</label>
                         <select 
@@ -885,10 +1101,22 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                             Live Feedback
                           </p>
                           {effectiveIsExecuting ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold">
-                              <span className="w-1.5 h-1.5 rounded-full bg-teal-600" />
-                              Running
-                            </span>
+                            effectiveExecutionStatus === 'paused' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                Paused
+                              </span>
+                            ) : effectiveExecutionStatus === 'cancelling' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-[10px] font-bold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
+                                Cancelling
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-teal-600" />
+                                Running
+                              </span>
+                            )
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
                               Finished
@@ -904,6 +1132,32 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                       {feedbackLogs.length} logs
                     </div>
                   </div>
+                  {effectiveIsExecuting ? (
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      {effectiveExecutionStatus === 'paused' ? (
+                        <button
+                          onClick={handleResume}
+                          className="px-3 py-1.5 rounded-full bg-teal-600 text-white text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          Resume
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handlePause}
+                          disabled={effectiveExecutionStatus !== 'running'}
+                          className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                        >
+                          Pause
+                        </button>
+                      )}
+                      <button
+                        onClick={handleCancel}
+                        className="px-3 py-1.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">

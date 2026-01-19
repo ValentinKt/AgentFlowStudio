@@ -10,6 +10,8 @@ export interface Agent {
   user_id: string;
   created_at: string;
   system_prompt?: string;
+  working_memory?: string;
+  facts?: Record<string, unknown>;
   model_config?: {
     temperature?: number;
     top_p?: number;

@@ -29,6 +29,8 @@ model Agent {
   priority      Int        @default(5)
   is_active     Boolean    @default(true)
   performance   Json       @default("{}")
+  working_memory String?   @default("")
+  facts         Json       @default("{}")
   user_id       String
   user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
   created_at    DateTime   @default(now())

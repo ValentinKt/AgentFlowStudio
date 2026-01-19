@@ -1,0 +1,39 @@
+Create a workflow called “Customer Support Triage → Dev Plan”.
+
+Goal:
+When a customer submits a support request, automatically triage it, extract key details, decide priority, and produce a clean output for the team.
+
+Trigger:
+Webhook trigger called “Support Request Received”.
+
+Inputs (ask the user for these if not provided):
+- customer_name (text)
+- customer_email (text)
+- product_area (select: Billing, Auth, Dashboard, API, Mobile, Other)
+- issue_summary (text)
+- steps_to_reproduce (text)
+- severity (select: Low, Medium, High, Critical)
+- screenshots_or_links (text, optional)
+- desired_output_channel (select: database, slack)
+
+Actions:
+- Consolidate the inputs into a structured incident report (include title, impact, reproduction, suspected area).
+- Generate a recommended resolution plan with 5–10 concrete steps and owners (dev / QA / support).
+- Draft a reply to the customer (friendly, clear, and brief).
+
+Conditions:
+- “Is this Critical?” → true if severity is Critical or High AND steps_to_reproduce are provided.
+  - True path: add an action “Escalation Plan” (paging instructions + immediate mitigation steps).
+  - False path: continue normal flow.
+- “Needs Clarification?” → true if issue_summary is vague OR steps_to_reproduce are missing.
+  - True path: create an action “Clarifying Questions” (5 questions to ask the customer).
+  - False path: continue.
+
+Outputs:
+- Final output must include:
+  - triage_summary
+  - priority (P0–P3)
+  - dev_plan
+  - customer_reply
+  - next_steps
+- If desired_output_channel is slack, format as a Slack-ready message; otherwise save to database.

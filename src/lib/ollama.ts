@@ -1,6 +1,4 @@
 import { ChatOllama } from "@langchain/ollama";
-import { Agent } from "../types";
-import { ActionGraph } from "./graphFactory";
 
 // Model configuration
 export const OLLAMA_MODEL = "gemini-3-flash-preview";
@@ -18,14 +16,6 @@ export const createAgentModel = () => {
     model: OLLAMA_MODEL,
     temperature: 0.7,
   });
-};
-
-/**
- * Create a LangGraph for an agent using the new factory
- */
-export const createAgentGraph = (agent: Agent) => {
-  const factory = new ActionGraph(agent);
-  return factory.buildGraph();
 };
 
 /**

@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Activity,
   Download,
-  Upload
+  Upload,
+  Sparkles
 } from 'lucide-react';
 import { useWorkflowStore } from '../store/workflowStore';
 import { useAgentStore } from '../store/agentStore';
@@ -21,7 +22,7 @@ import WorkflowDesigner from '../components/WorkflowDesigner';
 import { useNotificationStore } from '../store/notificationStore';
 
 const Workflows: React.FC = () => {
-  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, error: storeError } = useWorkflowStore();
+  const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, createWorkflowFromPrompt, error: storeError } = useWorkflowStore();
   const { agents, fetchAgents } = useAgentStore();
   const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,6 +31,11 @@ const Workflows: React.FC = () => {
   const [executionPrompt, setExecutionPrompt] = useState('');
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
   const [workflowToExecute, setWorkflowToExecute] = useState<any>(null);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiMissing, setAiMissing] = useState<string[]>([]);
+  const [aiQuestions, setAiQuestions] = useState<string[]>([]);
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
 
   const handleExport = (workflow: any) => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflow, null, 2));
@@ -116,61 +122,166 @@ const Workflows: React.FC = () => {
     const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
     const localDeployer = updatedAgents.find(a => a.role === 'local_deployer');
 
+    const configuration = {
+      nodes: [
+        { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
+
+        { id: 'i0', label: 'App Name', type: 'input', x: 600, y: 160, config: { inputType: 'text', key: 'app_name' }, description: 'Short name used for project folder, UI titles, and docs.' },
+        { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 290, config: { inputType: 'text', key: 'requirements' }, description: 'Detailed functional requirements and user stories.' },
+        { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 420, config: { inputType: 'text', key: 'branding_guidelines' }, description: 'Colors, logos, and visual style preferences.' },
+        { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 550, config: { inputType: 'select', key: 'target_platform', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
+        { id: 'i4', label: 'Authentication Required?', type: 'input', x: 600, y: 680, config: { inputType: 'boolean', key: 'auth_required' }, description: 'Whether users must sign in.' },
+        { id: 'i5', label: 'Database Required?', type: 'input', x: 600, y: 810, config: { inputType: 'boolean', key: 'database_required' }, description: 'Whether the app needs persistent data storage.' },
+        { id: 'i6', label: 'External APIs / Integrations', type: 'input', x: 600, y: 940, config: { inputType: 'text', key: 'external_apis' }, description: 'APIs to integrate with (optional). Include auth method if known.' },
+        {
+          id: 'i7',
+          label: 'Preferred Tech Stack',
+          type: 'input',
+          x: 600,
+          y: 1070,
+          config: {
+            inputType: 'select',
+            key: 'tech_stack_preference',
+            options: ['React + Vite', 'Next.js', 'React Native', 'Flutter', 'Electron', 'Tauri', 'Other'],
+          },
+          description: 'Preferred stack (optional). Used to validate feasibility and suggest alternatives.',
+        },
+        { id: 'i8', label: 'Resource Budget (Hours)', type: 'input', x: 600, y: 1200, config: { inputType: 'number', key: 'resource_budget_hours' }, description: 'Rough engineering budget in hours (optional). Helps scope planning.' },
+        {
+          id: 'i9',
+          label: 'Compliance Level',
+          type: 'input',
+          x: 600,
+          y: 1330,
+          config: { inputType: 'select', key: 'compliance_level', options: ['None', 'Standard', 'High'] },
+          description: 'Regulatory/security expectations (e.g., SOC2, HIPAA, GDPR).',
+        },
+
+        { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 1460, agentId: promptRetriever?.id, description: 'Consolidate user inputs into a structured spec + constraints.' },
+
+        { id: 'c_platform', label: 'Is Target Platform Web?', type: 'condition', x: 600, y: 1590, agentId: manager?.id, config: { conditionTrue: 'Web', conditionFalse: 'Non-Web' }, description: 'If target_platform === "Web", decision=true, else false.' },
+        { id: 'n_platform', label: 'Non-Web Platform Plan', type: 'action', x: 860, y: 1590, agentId: manager?.id, description: 'Adapt architecture and scope for non-web platform constraints.' },
+
+        { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 1730, agentId: manager?.id, description: 'Decompose requirements into deliverable tasks and milestones.' },
+
+        { id: 'c_stack', label: 'Tech Stack Compatible?', type: 'condition', x: 600, y: 1860, agentId: manager?.id, config: { conditionTrue: 'Compatible', conditionFalse: 'Incompatible' }, description: 'Validate preferred stack fits platform + requirements.' },
+        { id: 'n_stack', label: 'Recommend Tech Stack', type: 'action', x: 860, y: 1860, agentId: prompter?.id, description: 'Suggest a compatible stack and justify trade-offs.' },
+        { id: 'c_resources', label: 'Resources Adequate?', type: 'condition', x: 600, y: 1990, agentId: manager?.id, config: { conditionTrue: 'Adequate', conditionFalse: 'Insufficient' }, description: 'Assess feasibility vs budget and delivery constraints.' },
+        { id: 'n_scope', label: 'Scope Reduction Plan', type: 'action', x: 860, y: 1990, agentId: manager?.id, description: 'Propose phased delivery and cut/defers to fit budget.' },
+        { id: 'c_security', label: 'High Security/Compliance Needed?', type: 'condition', x: 600, y: 2120, agentId: manager?.id, config: { conditionTrue: 'High', conditionFalse: 'Standard' }, description: 'Decide if extra security/compliance controls are required.' },
+        { id: 'n_security', label: 'Security & Compliance Plan', type: 'action', x: 860, y: 2120, agentId: developer?.id, description: 'Define threat model, auth hardening, logging, data handling, and compliance checklist.' },
+
+        { id: 'c_auth', label: 'Auth Needed?', type: 'condition', x: 600, y: 2250, agentId: manager?.id, config: { conditionTrue: 'Auth', conditionFalse: 'No Auth' }, description: 'If auth_required is true, decision=true.' },
+        { id: 'n_auth', label: 'Auth Implementation Plan', type: 'action', x: 860, y: 2250, agentId: developer?.id, description: 'Plan auth flows, data model changes, and UI screens.' },
+
+        { id: 'c_db', label: 'Database Needed?', type: 'condition', x: 600, y: 2380, agentId: manager?.id, config: { conditionTrue: 'DB', conditionFalse: 'No DB' }, description: 'If database_required is true, decision=true.' },
+        { id: 'n_db', label: 'Data Model & Persistence Plan', type: 'action', x: 860, y: 2380, agentId: diagram?.id, description: 'Design entities, relationships, and persistence strategy.' },
+
+        { id: 'c_api', label: 'External APIs Needed?', type: 'condition', x: 600, y: 2510, agentId: manager?.id, config: { conditionTrue: 'Integrations', conditionFalse: 'No Integrations' }, description: 'If external_apis is provided, decision=true.' },
+        { id: 'n_api', label: 'Integration Plan', type: 'action', x: 860, y: 2510, agentId: developer?.id, description: 'Define API clients, secrets strategy, error handling, and mocks.' },
+
+        { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 2650, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
+        { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 2650, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
+
+        { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 2790, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
+
+        { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 2930, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
+        { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 2930, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
+
+        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 3070, agentId: developer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
+        { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 3200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
+
+        { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 3330, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
+        { id: 'n9', label: 'Refine & Debug', type: 'action', x: 860, y: 3330, agentId: developer?.id, description: 'Fix issues and bugs identified during QA/tests.' },
+
+        { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 3470, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
+        { id: 'n12', label: 'Release Notes & Next Steps', type: 'action', x: 800, y: 3470, agentId: prompter?.id, description: 'Generate a concise delivery summary and next steps for the user.' },
+        { id: 'n11', label: 'Delivery Notification', type: 'output', x: 600, y: 3610, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and local deployment.' },
+      ],
+      edges: [
+        { id: 'e1-i0', source: 'n1', target: 'i0' },
+        { id: 'ei0-i1', source: 'i0', target: 'i1' },
+        { id: 'ei1-i2', source: 'i1', target: 'i2' },
+        { id: 'ei2-i3', source: 'i2', target: 'i3' },
+        { id: 'ei3-i4', source: 'i3', target: 'i4' },
+        { id: 'ei4-i5', source: 'i4', target: 'i5' },
+        { id: 'ei5-i6', source: 'i5', target: 'i6' },
+        { id: 'ei6-i7', source: 'i6', target: 'i7' },
+        { id: 'ei7-i8', source: 'i7', target: 'i8' },
+        { id: 'ei8-i9', source: 'i8', target: 'i9' },
+        { id: 'ei9-prompt', source: 'i9', target: 'n_prompt' },
+
+        { id: 'e-prompt-platform', source: 'n_prompt', target: 'c_platform' },
+        { id: 'e-platform-web', source: 'c_platform', target: 'n2', sourcePort: 'true' },
+        { id: 'e-platform-nonweb', source: 'c_platform', target: 'n_platform', sourcePort: 'false' },
+        { id: 'e-nonweb-2', source: 'n_platform', target: 'n2' },
+
+        { id: 'e2-stack', source: 'n2', target: 'c_stack' },
+        { id: 'e-stack-ok', source: 'c_stack', target: 'c_resources', sourcePort: 'true' },
+        { id: 'e-stack-bad', source: 'c_stack', target: 'n_stack', sourcePort: 'false' },
+        { id: 'e-stack-next', source: 'n_stack', target: 'c_resources' },
+
+        { id: 'e-res-ok', source: 'c_resources', target: 'c_security', sourcePort: 'true' },
+        { id: 'e-res-bad', source: 'c_resources', target: 'n_scope', sourcePort: 'false' },
+        { id: 'e-res-next', source: 'n_scope', target: 'c_security' },
+
+        { id: 'e-sec-high', source: 'c_security', target: 'n_security', sourcePort: 'true' },
+        { id: 'e-sec-std', source: 'c_security', target: 'c_auth', sourcePort: 'false' },
+        { id: 'e-sec-next', source: 'n_security', target: 'c_auth' },
+
+        { id: 'e-auth-yes', source: 'c_auth', target: 'n_auth', sourcePort: 'true' },
+        { id: 'e-auth-no', source: 'c_auth', target: 'c_db', sourcePort: 'false' },
+        { id: 'e-auth-next', source: 'n_auth', target: 'c_db' },
+
+        { id: 'e-db-yes', source: 'c_db', target: 'n_db', sourcePort: 'true' },
+        { id: 'e-db-no', source: 'c_db', target: 'c_api', sourcePort: 'false' },
+        { id: 'e-db-next', source: 'n_db', target: 'c_api' },
+
+        { id: 'e-api-yes', source: 'c_api', target: 'n_api', sourcePort: 'true' },
+        { id: 'e-api-no', source: 'c_api', target: 'n3', sourcePort: 'false' },
+        { id: 'e-api-next', source: 'n_api', target: 'n3' },
+
+        { id: 'e2-4', source: 'n2', target: 'n4' },
+        { id: 'e3-5', source: 'n3', target: 'n5' },
+        { id: 'e4-5', source: 'n4', target: 'n5' },
+        { id: 'e5-6', source: 'n5', target: 'n6' },
+        { id: 'e5-7', source: 'n5', target: 'n7' },
+
+        { id: 'e6-tests', source: 'n6', target: 'n_tests' },
+        { id: 'e7-tests', source: 'n7', target: 'n_tests' },
+        { id: 'e-tests-cond', source: 'n_tests', target: 'c_tests' },
+        { id: 'e-tests-fail', source: 'c_tests', target: 'n9', sourcePort: 'false' },
+        { id: 'e-tests-pass', source: 'c_tests', target: 'n8', sourcePort: 'true' },
+
+        { id: 'e-qa-fail', source: 'n8', target: 'n9', sourcePort: 'false' },
+        { id: 'e-fix-retest', source: 'n9', target: 'n_tests' },
+
+        { id: 'e-qa-deploy', source: 'n8', target: 'n10', sourcePort: 'true' },
+        { id: 'e-qa-notes', source: 'n8', target: 'n12', sourcePort: 'true' },
+        { id: 'e-deploy-out', source: 'n10', target: 'n11' },
+        { id: 'e-notes-out', source: 'n12', target: 'n11' },
+      ],
+    };
+
+    const existing = workflows.find((w: any) => w.name === 'Ultimate App Creator AI');
+    if (existing) {
+      await updateWorkflow(existing.id, {
+        description: 'End-to-end autonomous workflow to build and deploy applications locally from user inputs.',
+        configuration,
+      });
+      addNotification('success', 'Ultimate App Creator AI workflow upgraded.');
+      return;
+    }
+
     const workflowId = await createWorkflow({
       name: 'Ultimate App Creator AI',
       description: 'End-to-end autonomous workflow to build and deploy applications locally from user inputs.',
-      configuration: {
-        nodes: [
-          { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
-          { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 200, config: { inputType: 'text' }, description: 'Detailed functional requirements and user stories.' },
-          { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 350, config: { inputType: 'text' }, description: 'Colors, logos, and visual style preferences.' },
-          { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 500, config: { inputType: 'select', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
-          
-          { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 650, agentId: promptRetriever?.id, description: 'Retrieve and consolidate all user inputs into a structured system prompt.' },
-          
-          { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 800, agentId: manager?.id, description: 'Decompose prompt and inputs into actionable developer tasks.' },
-          
-          { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 950, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
-          { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 950, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
-          
-          { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1100, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
-          
-          { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1250, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
-          { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1250, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
-          
-          { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 1400, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' } },
-          { id: 'n9', label: 'Refine & Debug', type: 'action', x: 900, y: 1400, agentId: developer?.id, description: 'Fix issues and bugs identified during the QA phase.' },
-          
-          { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 1550, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
-          { id: 'n11', label: 'Slack Notification', type: 'output', x: 800, y: 1550, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful local build and deployment.' }
-        ],
-        edges: [
-          { id: 'e1-i1', source: 'n1', target: 'i1' },
-          { id: 'ei1-i2', source: 'i1', target: 'i2' },
-          { id: 'ei2-i3', source: 'i2', target: 'i3' },
-          { id: 'ei3-prompt', source: 'i3', target: 'n_prompt' },
-          
-          { id: 'e-prompt-2', source: 'n_prompt', target: 'n2' },
-          
-          { id: 'e2-3', source: 'n2', target: 'n3' },
-          { id: 'e2-4', source: 'n2', target: 'n4' },
-          { id: 'e3-5', source: 'n3', target: 'n5' },
-          { id: 'e4-5', source: 'n4', target: 'n5' },
-          { id: 'e5-6', source: 'n5', target: 'n6' },
-          { id: 'e5-7', source: 'n5', target: 'n7' },
-          { id: 'e6-8', source: 'n6', target: 'n8' },
-          { id: 'e7-8', source: 'n7', target: 'n8' },
-          { id: 'e8-9', source: 'n8', target: 'n9', sourcePort: 'false' },
-          { id: 'e9-8', source: 'n9', target: 'n8' },
-          { id: 'e8-10', source: 'n8', target: 'n10', sourcePort: 'true' },
-          { id: 'e8-11', source: 'n8', target: 'n11', sourcePort: 'true' }
-        ]
-      }
+      configuration,
     });
 
-     if (workflowId) {
-       addNotification('success', 'Complex App Creator workflow initialized with required agents!');
-     }
+    if (workflowId) {
+      addNotification('success', 'Ultimate App Creator AI workflow created with expanded conditions.');
+    }
   };
 
   const handleCreateComplexWorkflow = async () => {
@@ -238,6 +349,18 @@ const Workflows: React.FC = () => {
             Import Config
             <input type="file" accept=".json" onChange={handleImport} className="hidden" />
           </label>
+          <button
+            onClick={() => {
+              setAiMissing([]);
+              setAiQuestions([]);
+              setIsAiModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-teal-200 text-teal-700 rounded-xl text-sm font-medium hover:bg-teal-50 transition-all shadow-sm"
+            title="Generate a workflow using AI"
+          >
+            <Sparkles size={18} />
+            AI Builder
+          </button>
           <button 
             onClick={handleCreateUltimateWorkflow}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 shadow-md shadow-indigo-100 transition-all"
@@ -420,6 +543,127 @@ const Workflows: React.FC = () => {
                   >
                     <Play size={18} fill="currentColor" />
                     Launch Workflow
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Workflow Builder Modal */}
+      <AnimatePresence>
+        {isAiModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => {
+                if (!isAiGenerating) setIsAiModalOpen(false);
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-700">
+                    <Sparkles size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-800">AI Workflow Builder</h2>
+                    <p className="text-sm text-slate-500">Describe what you want to automate. The AI will validate completeness, create agents, and generate a workflow graph.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Workflow Prompt</label>
+                    <textarea
+                      autoFocus
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all min-h-[170px] text-slate-800"
+                      placeholder="Example: When a user submits a feature request form, triage it, ask clarifying questions if incomplete, create a prioritized dev plan, and send a Slack summary."
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      disabled={isAiGenerating}
+                    />
+                  </div>
+
+                  {(aiMissing.length > 0 || aiQuestions.length > 0) && (
+                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                      <div className="text-sm font-bold text-amber-800 mb-2">Prompt needs more detail</div>
+                      {aiMissing.length > 0 && (
+                        <div className="text-xs text-amber-900 mb-2">
+                          <div className="font-semibold mb-1">Missing</div>
+                          <div className="flex flex-wrap gap-2">
+                            {aiMissing.map((m) => (
+                              <span key={m} className="px-2 py-0.5 bg-white rounded-full border border-amber-200 text-amber-900 font-semibold">
+                                {m}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {aiQuestions.length > 0 && (
+                        <div className="text-xs text-amber-900">
+                          <div className="font-semibold mb-1">Questions</div>
+                          <div className="space-y-1">
+                            {aiQuestions.map((q, idx) => (
+                              <div key={`${idx}-${q}`} className="flex gap-2">
+                                <span className="text-amber-700 font-black">•</span>
+                                <span className="leading-relaxed">{q}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 pt-6">
+                  <button
+                    type="button"
+                    onClick={() => setIsAiModalOpen(false)}
+                    disabled={isAiGenerating}
+                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all disabled:opacity-60 disabled:hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setIsAiGenerating(true);
+                      setAiMissing([]);
+                      setAiQuestions([]);
+                      try {
+                        const res = await createWorkflowFromPrompt(aiPrompt);
+                        if (res.ok === true) {
+                          addNotification('success', `Created workflow: ${res.workflowName}`);
+                          setIsAiModalOpen(false);
+                          setAiPrompt('');
+                          await fetchWorkflows();
+                        } else {
+                          setAiMissing(res.missing);
+                          setAiQuestions(res.questions);
+                          addNotification('info', res.message);
+                        }
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : 'Failed to generate workflow.';
+                        addNotification('error', message);
+                      } finally {
+                        setIsAiGenerating(false);
+                      }
+                    }}
+                    disabled={isAiGenerating || !aiPrompt.trim()}
+                    className="flex-[2] px-4 py-3 bg-teal-600 text-white rounded-xl font-bold hover:bg-teal-700 shadow-lg shadow-teal-100 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:hover:bg-teal-600"
+                  >
+                    <Sparkles size={18} />
+                    Validate & Create
                   </button>
                 </div>
               </div>
