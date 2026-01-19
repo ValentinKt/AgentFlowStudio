@@ -240,7 +240,8 @@ const Agents: React.FC = () => {
         <AnimatePresence>
           {filteredAgents.length > 0 ? (
             filteredAgents.map((agent, index) => {
-              const Icon = roleIcons[agent.role];
+              const Icon = roleIcons[agent.role] ?? Cpu;
+              const roleColor = roleColors[agent.role] ?? 'text-slate-600 bg-slate-100';
               return (
                 <motion.div
                   key={agent.id}
@@ -251,7 +252,7 @@ const Agents: React.FC = () => {
                   className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group"
                 >
                   <div className="flex justify-between items-start mb-4">
-                    <div className={`p-3 rounded-xl ${roleColors[agent.role]}`}>
+                    <div className={`p-3 rounded-xl ${roleColor}`}>
                       <Icon size={24} />
                     </div>
                     <div className="flex items-center gap-2">

@@ -145,103 +145,117 @@ const Workflows: React.FC = () => {
      const diagram = updatedAgents.find(a => a.role === 'diagram_generator');
      const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
      const localDeployer = updatedAgents.find(a => a.role === 'local_deployer');
-     const dataAnalyst = updatedAgents.find(a => a.role === 'data_analyst');
-     const qaEngineer = updatedAgents.find(a => a.role === 'qa_engineer');
-     const securityAuditor = updatedAgents.find(a => a.role === 'security_auditor');
+    const dataAnalyst = updatedAgents.find(a => a.role === 'data_analyst');
+    const qaEngineer = updatedAgents.find(a => a.role === 'qa_engineer');
+    const securityAuditor = updatedAgents.find(a => a.role === 'security_auditor');
+    const researchAssistant = updatedAgents.find(a => a.role === 'research_assistant');
+    const financialAdvisor = updatedAgents.find(a => a.role === 'financial_advisor');
+    const legalConsultant = updatedAgents.find(a => a.role === 'legal_consultant');
+    const devopsSpecialist = updatedAgents.find(a => a.role === 'devops_specialist');
+    const contentWriter = updatedAgents.find(a => a.role === 'content_writer');
 
     const configuration = {
       nodes: [
         { id: 'n1', label: 'App Prompt Received', type: 'trigger', x: 600, y: 50, config: { triggerType: 'webhook' } },
 
-        { id: 'i0', label: 'App Name', type: 'input', x: 600, y: 160, config: { inputType: 'text', key: 'app_name' }, description: 'Short name used for project folder, UI titles, and docs.' },
-        { id: 'i1', label: 'Project Requirements', type: 'input', x: 600, y: 290, config: { inputType: 'text', key: 'requirements' }, description: 'Detailed functional requirements and user stories.' },
-        { id: 'i2', label: 'Branding Guidelines', type: 'input', x: 600, y: 420, config: { inputType: 'text', key: 'branding_guidelines' }, description: 'Colors, logos, and visual style preferences.' },
-        { id: 'i3', label: 'Target Platform', type: 'input', x: 600, y: 550, config: { inputType: 'select', key: 'target_platform', options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'] }, description: 'Primary deployment target and environment.' },
-        { id: 'i4', label: 'Authentication Required?', type: 'input', x: 600, y: 680, config: { inputType: 'boolean', key: 'auth_required' }, description: 'Whether users must sign in.' },
-        { id: 'i5', label: 'Database Required?', type: 'input', x: 600, y: 810, config: { inputType: 'boolean', key: 'database_required' }, description: 'Whether the app needs persistent data storage.' },
-        { id: 'i6', label: 'External APIs / Integrations', type: 'input', x: 600, y: 940, config: { inputType: 'text', key: 'external_apis' }, description: 'APIs to integrate with (optional). Include auth method if known.' },
         {
-          id: 'i7',
-          label: 'Preferred Tech Stack',
+          id: 'i_multi',
+          label: 'Project Inputs',
           type: 'input',
           x: 600,
-          y: 1070,
+          y: 180,
+          description: 'Collect core project requirements in a single guided modal.',
           config: {
-            inputType: 'select',
-            key: 'tech_stack_preference',
-            options: ['React + Vite', 'Next.js', 'React Native', 'Flutter', 'Electron', 'Tauri', 'Other'],
+            isMultiInput: true,
+            fields: [
+              { key: 'app_name', label: 'App Name', type: 'text', defaultValue: '' },
+              { key: 'requirements', label: 'Project Requirements', type: 'text', defaultValue: '' },
+              { key: 'branding_guidelines', label: 'Branding Guidelines', type: 'text', defaultValue: '' },
+              {
+                key: 'target_platform',
+                label: 'Target Platform',
+                type: 'select',
+                options: ['Web', 'Mobile (iOS/Android)', 'Desktop', 'Cross-Platform'],
+                defaultValue: 'Web',
+              },
+              { key: 'auth_required', label: 'Authentication Required?', type: 'boolean', defaultValue: false },
+              { key: 'database_required', label: 'Database Required?', type: 'boolean', defaultValue: false },
+              { key: 'external_apis', label: 'External APIs / Integrations', type: 'text', defaultValue: '' },
+              {
+                key: 'tech_stack_preference',
+                label: 'Preferred Tech Stack',
+                type: 'select',
+                options: ['React + Vite', 'Next.js', 'React Native', 'Flutter', 'Electron', 'Tauri', 'Other'],
+                defaultValue: 'React + Vite',
+              },
+              { key: 'resource_budget_hours', label: 'Resource Budget (Hours)', type: 'number', defaultValue: 0 },
+              {
+                key: 'compliance_level',
+                label: 'Compliance Level',
+                type: 'select',
+                options: ['None', 'Standard', 'High'],
+                defaultValue: 'Standard',
+              },
+            ],
           },
-          description: 'Preferred stack (optional). Used to validate feasibility and suggest alternatives.',
-        },
-        { id: 'i8', label: 'Resource Budget (Hours)', type: 'input', x: 600, y: 1200, config: { inputType: 'number', key: 'resource_budget_hours' }, description: 'Rough engineering budget in hours (optional). Helps scope planning.' },
-        {
-          id: 'i9',
-          label: 'Compliance Level',
-          type: 'input',
-          x: 600,
-          y: 1330,
-          config: { inputType: 'select', key: 'compliance_level', options: ['None', 'Standard', 'High'] },
-          description: 'Regulatory/security expectations (e.g., SOC2, HIPAA, GDPR).',
         },
 
-        { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 1460, agentId: promptRetriever?.id, description: 'Consolidate user inputs into a structured spec + constraints.' },
+        { id: 'n_prompt', label: 'Prompt Extraction', type: 'action', x: 600, y: 320, agentId: promptRetriever?.id, description: 'Consolidate user inputs into a structured spec + constraints.' },
+        { id: 'n_research', label: 'Research & Benchmarks', type: 'action', x: 340, y: 450, agentId: researchAssistant?.id, description: 'Gather proven patterns, comparable products, and sustainable delivery risks.' },
 
-        { id: 'c_platform', label: 'Is Target Platform Web?', type: 'condition', x: 600, y: 1590, agentId: manager?.id, config: { conditionTrue: 'Web', conditionFalse: 'Non-Web' }, description: 'If target_platform === "Web", decision=true, else false.' },
-        { id: 'n_platform', label: 'Non-Web Platform Plan', type: 'action', x: 860, y: 1590, agentId: manager?.id, description: 'Adapt architecture and scope for non-web platform constraints.' },
+        { id: 'c_platform', label: 'Is Target Platform Web?', type: 'condition', x: 600, y: 450, agentId: manager?.id, config: { conditionTrue: 'Web', conditionFalse: 'Non-Web' }, description: 'If target_platform === "Web", decision=true, else false.' },
+        { id: 'n_platform', label: 'Non-Web Platform Plan', type: 'action', x: 860, y: 450, agentId: manager?.id, description: 'Adapt architecture and scope for non-web platform constraints.' },
 
-        { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 1730, agentId: manager?.id, description: 'Decompose requirements into deliverable tasks and milestones.' },
+        { id: 'n2', label: 'Strategic Orchestration', type: 'action', x: 600, y: 590, agentId: manager?.id, description: 'Decompose requirements into deliverable tasks and milestones.' },
 
-        { id: 'c_stack', label: 'Tech Stack Compatible?', type: 'condition', x: 600, y: 1860, agentId: manager?.id, config: { conditionTrue: 'Compatible', conditionFalse: 'Incompatible' }, description: 'Validate preferred stack fits platform + requirements.' },
-        { id: 'n_stack', label: 'Recommend Tech Stack', type: 'action', x: 860, y: 1860, agentId: prompter?.id, description: 'Suggest a compatible stack and justify trade-offs.' },
-        { id: 'c_resources', label: 'Resources Adequate?', type: 'condition', x: 600, y: 1990, agentId: manager?.id, config: { conditionTrue: 'Adequate', conditionFalse: 'Insufficient' }, description: 'Assess feasibility vs budget and delivery constraints.' },
-        { id: 'n_scope', label: 'Scope Reduction Plan', type: 'action', x: 860, y: 1990, agentId: manager?.id, description: 'Propose phased delivery and cut/defers to fit budget.' },
+        { id: 'c_stack', label: 'Tech Stack Compatible?', type: 'condition', x: 600, y: 720, agentId: manager?.id, config: { conditionTrue: 'Compatible', conditionFalse: 'Incompatible' }, description: 'Validate preferred stack fits platform + requirements.' },
+        { id: 'n_stack', label: 'Recommend Tech Stack', type: 'action', x: 860, y: 720, agentId: prompter?.id, description: 'Suggest a compatible stack and justify trade-offs.' },
+        { id: 'c_resources', label: 'Resources Adequate?', type: 'condition', x: 600, y: 850, agentId: manager?.id, config: { conditionTrue: 'Adequate', conditionFalse: 'Insufficient' }, description: 'Assess feasibility vs budget and delivery constraints.' },
+        { id: 'n_scope', label: 'Scope Reduction Plan', type: 'action', x: 860, y: 850, agentId: manager?.id, description: 'Propose phased delivery and cut/defers to fit budget.' },
         
-        { id: 'n_data_analysis', label: 'Data Architecture Review', type: 'action', x: 340, y: 1990, agentId: dataAnalyst?.id, description: 'Analyze data requirements and suggest optimal storage/schema patterns.' },
+        { id: 'n_data_analysis', label: 'Data Architecture Review', type: 'action', x: 340, y: 850, agentId: dataAnalyst?.id, description: 'Analyze data requirements and suggest optimal storage/schema patterns.' },
+        { id: 'n_finance', label: 'Cost & ROI Estimate', type: 'action', x: 140, y: 850, agentId: financialAdvisor?.id, description: 'Estimate run-costs, staffing needs, and ROI outlook for an eco-efficient plan.' },
 
-        { id: 'c_security', label: 'High Security/Compliance Needed?', type: 'condition', x: 600, y: 2120, agentId: manager?.id, config: { conditionTrue: 'High', conditionFalse: 'Standard' }, description: 'Decide if extra security/compliance controls are required.' },
-        { id: 'n_security', label: 'Security & Compliance Plan', type: 'action', x: 860, y: 2120, agentId: securityAuditor?.id, description: 'Define threat model, auth hardening, logging, data handling, and compliance checklist.' },
+        { id: 'c_security', label: 'High Security/Compliance Needed?', type: 'condition', x: 600, y: 980, agentId: manager?.id, config: { conditionTrue: 'High', conditionFalse: 'Standard' }, description: 'Decide if extra security/compliance controls are required.' },
+        { id: 'n_security', label: 'Security & Compliance Plan', type: 'action', x: 860, y: 980, agentId: securityAuditor?.id, description: 'Define threat model, auth hardening, logging, data handling, and compliance checklist.' },
+        { id: 'n_legal', label: 'Legal & Policy Review', type: 'action', x: 340, y: 980, agentId: legalConsultant?.id, description: 'Review policy requirements, data handling obligations, and risk guardrails.' },
 
-        { id: 'c_auth', label: 'Auth Needed?', type: 'condition', x: 600, y: 2250, agentId: manager?.id, config: { conditionTrue: 'Auth', conditionFalse: 'No Auth' }, description: 'If auth_required is true, decision=true.' },
-        { id: 'n_auth', label: 'Auth Implementation Plan', type: 'action', x: 860, y: 2250, agentId: developer?.id, description: 'Plan auth flows, data model changes, and UI screens.' },
+        { id: 'c_auth', label: 'Auth Needed?', type: 'condition', x: 600, y: 1110, agentId: manager?.id, config: { conditionTrue: 'Auth', conditionFalse: 'No Auth' }, description: 'If auth_required is true, decision=true.' },
+        { id: 'n_auth', label: 'Auth Implementation Plan', type: 'action', x: 860, y: 1110, agentId: developer?.id, description: 'Plan auth flows, data model changes, and UI screens.' },
 
-        { id: 'c_db', label: 'Database Needed?', type: 'condition', x: 600, y: 2380, agentId: manager?.id, config: { conditionTrue: 'DB', conditionFalse: 'No DB' }, description: 'If database_required is true, decision=true.' },
-        { id: 'n_db', label: 'Data Model & Persistence Plan', type: 'action', x: 860, y: 2380, agentId: diagram?.id, description: 'Design entities, relationships, and persistence strategy.' },
+        { id: 'c_db', label: 'Database Needed?', type: 'condition', x: 600, y: 1240, agentId: manager?.id, config: { conditionTrue: 'DB', conditionFalse: 'No DB' }, description: 'If database_required is true, decision=true.' },
+        { id: 'n_db', label: 'Data Model & Persistence Plan', type: 'action', x: 860, y: 1240, agentId: diagram?.id, description: 'Design entities, relationships, and persistence strategy.' },
 
-        { id: 'c_api', label: 'External APIs Needed?', type: 'condition', x: 600, y: 2510, agentId: manager?.id, config: { conditionTrue: 'Integrations', conditionFalse: 'No Integrations' }, description: 'If external_apis is provided, decision=true.' },
-        { id: 'n_api', label: 'Integration Plan', type: 'action', x: 860, y: 2510, agentId: developer?.id, description: 'Define API clients, secrets strategy, error handling, and mocks.' },
+        { id: 'c_api', label: 'External APIs Needed?', type: 'condition', x: 600, y: 1370, agentId: manager?.id, config: { conditionTrue: 'Integrations', conditionFalse: 'No Integrations' }, description: 'If external_apis is provided, decision=true.' },
+        { id: 'n_api', label: 'Integration Plan', type: 'action', x: 860, y: 1370, agentId: developer?.id, description: 'Define API clients, secrets strategy, error handling, and mocks.' },
 
-        { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 2650, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
-        { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 2650, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
+        { id: 'n3', label: 'System Architecture', type: 'action', x: 400, y: 1510, agentId: diagram?.id, description: 'Generate technical diagrams, schemas and data models.' },
+        { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 1510, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
 
-        { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 2790, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
+        { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1650, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
 
-        { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 2930, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
-        { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 2930, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
+        { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1790, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
+        { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1790, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
 
-        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 3070, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
-        { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 3200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
+        { id: 'n_devops', label: 'DevOps & Observability Plan', type: 'action', x: 340, y: 1930, agentId: devopsSpecialist?.id, description: 'Define CI/CD, monitoring, and green infrastructure considerations.' },
+        { id: 'n_content', label: 'UX Copy & Content Plan', type: 'action', x: 860, y: 1930, agentId: contentWriter?.id, description: 'Craft user-facing copy, onboarding cues, and microcopy guidelines.' },
 
-        { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 3330, agentId: qaEngineer?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
-        { id: 'n9', label: 'Refine & Debug', type: 'action', x: 860, y: 3330, agentId: developer?.id, description: 'Fix issues and bugs identified during QA/tests.' },
+        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 2070, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
+        { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 2200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
 
-        { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 3470, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
-        { id: 'n12', label: 'Release Notes & Next Steps', type: 'action', x: 800, y: 3470, agentId: prompter?.id, description: 'Generate a concise delivery summary and next steps for the user.' },
-        { id: 'n11', label: 'Delivery Notification', type: 'output', x: 600, y: 3610, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and local deployment.' },
+        { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 2330, agentId: qaEngineer?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
+        { id: 'n9', label: 'Refine & Debug', type: 'action', x: 860, y: 2330, agentId: developer?.id, description: 'Fix issues and bugs identified during QA/tests.', config: { loopCount: 2 } },
+
+        { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 2470, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
+        { id: 'n12', label: 'Release Notes & Next Steps', type: 'action', x: 800, y: 2470, agentId: prompter?.id, description: 'Generate a concise delivery summary and next steps for the user.' },
+        { id: 'n11', label: 'Delivery Notification', type: 'output', x: 600, y: 2610, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and local deployment.' },
       ],
       edges: [
-        { id: 'e1-i0', source: 'n1', target: 'i0' },
-        { id: 'ei0-i1', source: 'i0', target: 'i1' },
-        { id: 'ei1-i2', source: 'i1', target: 'i2' },
-        { id: 'ei2-i3', source: 'i2', target: 'i3' },
-        { id: 'ei3-i4', source: 'i3', target: 'i4' },
-        { id: 'ei4-i5', source: 'i4', target: 'i5' },
-        { id: 'ei5-i6', source: 'i5', target: 'i6' },
-        { id: 'ei6-i7', source: 'i6', target: 'i7' },
-        { id: 'ei7-i8', source: 'i7', target: 'i8' },
-        { id: 'ei8-i9', source: 'i8', target: 'i9' },
-        { id: 'ei9-prompt', source: 'i9', target: 'n_prompt' },
+        { id: 'e1-inputs', source: 'n1', target: 'i_multi' },
+        { id: 'e-inputs-prompt', source: 'i_multi', target: 'n_prompt' },
 
-        { id: 'e-prompt-platform', source: 'n_prompt', target: 'c_platform' },
+        { id: 'e-prompt-research', source: 'n_prompt', target: 'n_research' },
+        { id: 'e-research-platform', source: 'n_research', target: 'c_platform' },
         { id: 'e-platform-web', source: 'c_platform', target: 'n2', sourcePort: 'true' },
         { id: 'e-platform-nonweb', source: 'c_platform', target: 'n_platform', sourcePort: 'false' },
         { id: 'e-nonweb-2', source: 'n_platform', target: 'n2' },
@@ -251,16 +265,18 @@ const Workflows: React.FC = () => {
         { id: 'e-stack-bad', source: 'c_stack', target: 'n_stack', sourcePort: 'false' },
         { id: 'e-stack-next', source: 'n_stack', target: 'c_resources' },
 
-        { id: 'e-res-ok', source: 'c_resources', target: 'c_security', sourcePort: 'true' },
+        { id: 'e-res-ok', source: 'c_resources', target: 'n_finance', sourcePort: 'true' },
         { id: 'e-res-bad', source: 'c_resources', target: 'n_scope', sourcePort: 'false' },
-        { id: 'e-res-next', source: 'n_scope', target: 'c_security' },
+        { id: 'e-res-next', source: 'n_scope', target: 'n_finance' },
         
         { id: 'e-res-data', source: 'c_resources', target: 'n_data_analysis', sourcePort: 'true' },
         { id: 'e-data-sec', source: 'n_data_analysis', target: 'c_security' },
+        { id: 'e-fin-sec', source: 'n_finance', target: 'c_security' },
 
         { id: 'e-sec-high', source: 'c_security', target: 'n_security', sourcePort: 'true' },
-        { id: 'e-sec-std', source: 'c_security', target: 'c_auth', sourcePort: 'false' },
-        { id: 'e-sec-next', source: 'n_security', target: 'c_auth' },
+        { id: 'e-sec-std', source: 'c_security', target: 'n_legal', sourcePort: 'false' },
+        { id: 'e-sec-next', source: 'n_security', target: 'n_legal' },
+        { id: 'e-legal-auth', source: 'n_legal', target: 'c_auth' },
 
         { id: 'e-auth-yes', source: 'c_auth', target: 'n_auth', sourcePort: 'true' },
         { id: 'e-auth-no', source: 'c_auth', target: 'c_db', sourcePort: 'false' },
@@ -280,8 +296,10 @@ const Workflows: React.FC = () => {
         { id: 'e5-6', source: 'n5', target: 'n6' },
         { id: 'e5-7', source: 'n5', target: 'n7' },
 
-        { id: 'e6-tests', source: 'n6', target: 'n_tests' },
-        { id: 'e7-tests', source: 'n7', target: 'n_tests' },
+        { id: 'e6-content', source: 'n6', target: 'n_content' },
+        { id: 'e7-devops', source: 'n7', target: 'n_devops' },
+        { id: 'e-content-tests', source: 'n_content', target: 'n_tests' },
+        { id: 'e-devops-tests', source: 'n_devops', target: 'n_tests' },
         { id: 'e-tests-cond', source: 'n_tests', target: 'c_tests' },
         { id: 'e-tests-fail', source: 'c_tests', target: 'n9', sourcePort: 'false' },
         { id: 'e-tests-pass', source: 'c_tests', target: 'n8', sourcePort: 'true' },

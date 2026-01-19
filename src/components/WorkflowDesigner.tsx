@@ -55,6 +55,8 @@ interface Node {
     key?: string;
     isMultiInput?: boolean;
     fields?: any[];
+    loopCount?: number;
+    loopDelayMs?: number;
   };
 }
 
@@ -663,51 +665,59 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     // 1. Layer nodes by dependency using BFS
     const nodeLayers: { [id: string]: number } = {};
     const processedNodes = new Set<string>();
-    
-    // Find roots (nodes with no incoming edges)
-    let currentLayer = nodes.filter(n => !edges.find(e => e.target === n.id));
-    
-    // If no roots, start with triggers
-    if (currentLayer.length === 0) {
-      currentLayer = nodes.filter(n => n.type === 'trigger');
+    const incomingMap = new Map<string, string[]>();
+    const outgoingMap = new Map<string, string[]>();
+
+    nodes.forEach(node => {
+      incomingMap.set(node.id, []);
+      outgoingMap.set(node.id, []);
+    });
+
+    edges.forEach(edge => {
+      incomingMap.get(edge.target)?.push(edge.source);
+      outgoingMap.get(edge.source)?.push(edge.target);
+    });
+
+    let rootNodes = nodes.filter(n => (incomingMap.get(n.id) ?? []).length === 0);
+    if (rootNodes.length === 0) {
+      rootNodes = nodes.filter(n => n.type === 'trigger');
     }
-    
-    // If still no roots, take the first node
-    if (currentLayer.length === 0) {
-      currentLayer = [nodes[0]];
+    if (rootNodes.length === 0) {
+      rootNodes = [nodes[0]];
     }
 
-    let layerIndex = 0;
-    let nodesToProcess = [...currentLayer];
-    
-    while (nodesToProcess.length > 0) {
-      const nextLayerNodes: Node[] = [];
-      nodesToProcess.forEach(node => {
-        if (!processedNodes.has(node.id)) {
-          nodeLayers[node.id] = layerIndex;
-          processedNodes.add(node.id);
-          
-          // Find children
-          const children = edges
-            .filter(e => e.source === node.id)
-            .map(e => nodes.find(n => n.id === e.target))
-            .filter(Boolean) as Node[];
-          
-          children.forEach(child => {
-            if (!processedNodes.has(child.id)) {
-              nextLayerNodes.push(child);
-            }
-          });
+    const inDegree = new Map<string, number>();
+    nodes.forEach(node => {
+      inDegree.set(node.id, (incomingMap.get(node.id) ?? []).length);
+    });
+
+    const queue = rootNodes.map(node => node.id);
+    rootNodes.forEach(node => {
+      nodeLayers[node.id] = 0;
+    });
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift();
+      if (!nodeId) break;
+      if (processedNodes.has(nodeId)) continue;
+      processedNodes.add(nodeId);
+      const currentLayer = nodeLayers[nodeId] ?? 0;
+      const children = outgoingMap.get(nodeId) ?? [];
+      children.forEach(childId => {
+        const nextLayer = currentLayer + 1;
+        nodeLayers[childId] = Math.max(nodeLayers[childId] ?? 0, nextLayer);
+        const nextInDegree = (inDegree.get(childId) ?? 0) - 1;
+        inDegree.set(childId, nextInDegree);
+        if (nextInDegree <= 0) {
+          queue.push(childId);
         }
       });
-      nodesToProcess = nextLayerNodes;
-      layerIndex++;
     }
 
-    // Handle orphaned nodes
+    const maxAssignedLayer = Math.max(0, ...Object.values(nodeLayers));
     nodes.forEach(node => {
       if (!processedNodes.has(node.id)) {
-        nodeLayers[node.id] = layerIndex;
+        nodeLayers[node.id] = maxAssignedLayer + 1;
       }
     });
 
@@ -1222,6 +1232,25 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                           )}
                         </>
                       )}
+                    </div>
+                  )}
+
+                  {selectedNode.type === 'action' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Loop Count</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={selectedNode.config?.loopCount ?? 1}
+                          onChange={(e) => {
+                            const raw = Number(e.target.value);
+                            const loopCount = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+                            updateNode(selectedNode.id, { config: { ...selectedNode.config, loopCount } });
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                        />
+                      </div>
                     </div>
                   )}
 

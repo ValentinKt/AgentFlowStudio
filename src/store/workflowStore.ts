@@ -567,7 +567,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             );
 
             const baseContext: Record<string, unknown> = { ...(state.context || {}) };
-            const agentContext = {
+            const agentContext: Record<string, unknown> = {
               ...baseContext,
               agent_memory: agent?.working_memory || '',
               agent_facts: (agent?.facts as Record<string, unknown> | undefined) || {},
@@ -704,21 +704,44 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                 `You are an expert ${roleForNodeType(node.type)}. Your name is ${agent?.name || 'Agent'}.\nExecute the following task professionally and concisely.`;
 
               const userPrompt = node.label || node.description || 'Task';
+              const loopCountRaw = node.config?.['loopCount'];
+              const loopCountParsed =
+                typeof loopCountRaw === 'number'
+                  ? loopCountRaw
+                  : typeof loopCountRaw === 'string'
+                    ? Number(loopCountRaw)
+                    : 1;
+              const loopCount = Number.isFinite(loopCountParsed) && loopCountParsed > 0 ? Math.floor(loopCountParsed) : 1;
               let contentOut = '';
-              for (let iteration = 0; iteration < 2; iteration += 1) {
-                await waitForControls();
-                const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
-                tokenUsageEvents.push(res.metadata);
-                contentOut = res.content;
+              let loopContext: Record<string, unknown> = { ...agentContext };
 
-                const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
-                const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, agentContext, waitForControls);
-                tokenUsageEvents.push(reflection.metadata);
-                if (reflection.content.includes('APPROVED')) break;
+              for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
+                for (let iteration = 0; iteration < 2; iteration += 1) {
+                  await waitForControls();
+                  const res = await invokeWithContext(model, systemPrompt, userPrompt, loopContext, waitForControls);
+                  tokenUsageEvents.push(res.metadata);
+                  contentOut = res.content;
+
+                  const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
+                  const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, loopContext, waitForControls);
+                  tokenUsageEvents.push(reflection.metadata);
+                  if (reflection.content.includes('APPROVED')) break;
+                }
+
+                loopContext = {
+                  ...loopContext,
+                  [`loop:${node.id}:count`]: loopCount,
+                  [`loop:${node.id}:iteration`]: loopIndex + 1,
+                  lastOutput: contentOut,
+                };
               }
+
               outputText = contentOut;
-              outputPayload = { message: outputText };
-              contextDelta = { lastOutput: outputText };
+              outputPayload = { message: outputText, loopCount };
+              contextDelta = {
+                lastOutput: outputText,
+                [`loop:${node.id}:count`]: loopCount,
+              };
             }
 
             const derived = deriveWorkingMemoryAndFacts(outputText, agent?.facts as Record<string, unknown> | undefined);
@@ -822,15 +845,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       for (const node of nodes) {
         if (node.type === 'condition') continue;
         const outgoing = outgoingById.get(node.id) ?? [];
-        if (outgoing.length === 0) {
+        const nonJoinTargets = outgoing
+          .filter((e) => !joinTargets.has(e.target))
+          .map((e) => nodeName(e.target));
+        if (nonJoinTargets.length === 0) {
           workflowGraph.addEdge(nodeName(node.id), END);
           continue;
         }
-
-        for (const e of outgoing) {
-          if (joinTargets.has(e.target)) continue;
-          workflowGraph.addEdge(nodeName(node.id), nodeName(e.target));
+        if (nonJoinTargets.length === 1) {
+          workflowGraph.addEdge(nodeName(node.id), nonJoinTargets[0]);
+          continue;
         }
+        workflowGraph.addEdge(nodeName(node.id), nonJoinTargets);
       }
 
       for (const target of joinTargets) {
@@ -972,7 +998,7 @@ Return ONLY valid JSON with this exact shape:
 {
   "workflow": { "name": "string", "description": "string" },
   "agents": [
-    { "name": "string", "role": "global_manager|prompter|developer|ui_generator|prompt_manager|diagram_generator|trigger|evaluator|output|prompt_retriever|local_deployer", "system_prompt": "string" }
+    { "name": "string", "role": "global_manager|prompter|developer|ui_generator|prompt_manager|diagram_generator|trigger|evaluator|output|prompt_retriever|local_deployer|data_analyst|security_auditor|content_writer|qa_engineer|devops_specialist|research_assistant|customer_support|marketing_strategist|financial_advisor|legal_consultant", "system_prompt": "string" }
   ],
   "nodes": [
     { "id": "string", "type": "trigger|input|action|condition|output", "label": "string", "description": "string", "agent_role": "string (optional)", "config": {} }
@@ -1142,6 +1168,16 @@ Rules:
         'output',
         'prompt_retriever',
         'local_deployer',
+        'data_analyst',
+        'security_auditor',
+        'content_writer',
+        'qa_engineer',
+        'devops_specialist',
+        'research_assistant',
+        'customer_support',
+        'marketing_strategist',
+        'financial_advisor',
+        'legal_consultant',
       ]);
 
       const draftAgents: WorkflowAgentDraft[] = [];
@@ -1188,6 +1224,16 @@ Rules:
         output: { name: 'Output Formatter', system_prompt: 'You format final outputs for the chosen destination.' },
         prompt_retriever: { name: 'Prompt Collector', system_prompt: 'You consolidate inputs into a structured spec.' },
         local_deployer: { name: 'Local Host Runner', system_prompt: 'You deploy the app locally and summarize access details.' },
+        data_analyst: { name: 'Insights Engine', system_prompt: 'You analyze data needs and propose schema and analytics approaches.' },
+        security_auditor: { name: 'Guard Dog', system_prompt: 'You assess security, compliance, and threat modeling requirements.' },
+        content_writer: { name: 'Creative Pen', system_prompt: 'You craft clear copy and content outlines for the product.' },
+        qa_engineer: { name: 'Bug Hunter', system_prompt: 'You define testing strategy and validate quality gates.' },
+        devops_specialist: { name: 'Cloud Runner', system_prompt: 'You advise on deployment, CI/CD, and infrastructure readiness.' },
+        research_assistant: { name: 'Knowledge Base', system_prompt: 'You gather references, best practices, and comparable solutions.' },
+        customer_support: { name: 'User Helper', system_prompt: 'You outline support flows and user success considerations.' },
+        marketing_strategist: { name: 'Growth Hacker', system_prompt: 'You propose go-to-market and growth positioning.' },
+        financial_advisor: { name: 'Budget Planner', system_prompt: 'You estimate costs and suggest financial constraints.' },
+        legal_consultant: { name: 'Compliance Pro', system_prompt: 'You identify legal requirements and policy guidelines.' },
       };
 
       const desiredAgents = [...draftAgents];

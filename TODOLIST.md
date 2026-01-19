@@ -24,7 +24,7 @@
 [x] Refine "ALIGN HORIZONTAL" and "ALIGN VERTICAL" with BFS layering and parent-position symmetry
 [x] Ensure edge rendering consistency using component-level constants (NODE_WIDTH/NODE_HEIGHT)
 [x] Fix workflow graph centering logic in Visual Workflow Designer
-[ ] Verify layout symmetry with complex parallel workflow branches
+[x] Verify layout symmetry with complex parallel workflow branches
 [x] Replace alignment buttons with MUI components (IconButton, Tooltip)
 [x] Verify layout with sample workflows to ensure symmetry and centering
 [x] Refine multi-input configuration tools for input nodes (add/remove fields, key/label/type config)
@@ -32,4 +32,7 @@
 [x] Implement robust retry logic for Ollama stream errors ("Did not receive done or success response")
 [x] Add automatic retry logic for empty model responses in invokeWithContext and invokeModel
 [x] Integrate pause/resume management within the retry loop of tasks
-[ ] Verify fix for "QA & Integration Check" stream error with simulation
+[x] Verify fix for "QA & Integration Check" stream error with simulation
+[x] Create agents for all available roles
+[x] Create app creation workflow with configurable input fields
+[x] Display all agents on Agents page
