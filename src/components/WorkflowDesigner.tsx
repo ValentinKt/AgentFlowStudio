@@ -193,6 +193,12 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('vertical');
   const [isSimulating, setIsSimulating] = useState(false);
+
+  const NODE_WIDTH = 256;
+  const NODE_HEIGHT = 140;
+  const SPACING_X = 350;
+  const SPACING_Y = 250;
+
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'paused' | 'cancelling'>('idle');
   const [activeNodeIdLocal, setActiveNodeIdLocal] = useState<string | null>(null);
   const [feedbackLogs, setFeedbackLogs] = useState<FeedbackLog[]>([]);
@@ -613,27 +619,29 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     if (nodes.length === 0) return;
     setLayoutDirection(direction);
 
-    // Simple layout algorithm: Layer nodes by dependency
+    // 1. Layer nodes by dependency using BFS
     const nodeLayers: { [id: string]: number } = {};
     const processedNodes = new Set<string>();
     
     // Find roots (nodes with no incoming edges)
     let currentLayer = nodes.filter(n => !edges.find(e => e.target === n.id));
     
-    // If no roots (circular or empty edges), start with triggers
+    // If no roots, start with triggers
     if (currentLayer.length === 0) {
       currentLayer = nodes.filter(n => n.type === 'trigger');
     }
     
-    // If still no roots, just take the first node
+    // If still no roots, take the first node
     if (currentLayer.length === 0) {
       currentLayer = [nodes[0]];
     }
 
     let layerIndex = 0;
-    while (currentLayer.length > 0) {
-      const nextLayerIds = new Set<string>();
-      currentLayer.forEach(node => {
+    let nodesToProcess = [...currentLayer];
+    
+    while (nodesToProcess.length > 0) {
+      const nextLayerNodes: Node[] = [];
+      nodesToProcess.forEach(node => {
         if (!processedNodes.has(node.id)) {
           nodeLayers[node.id] = layerIndex;
           processedNodes.add(node.id);
@@ -646,12 +654,12 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           
           children.forEach(child => {
             if (!processedNodes.has(child.id)) {
-              nextLayerIds.add(child.id);
+              nextLayerNodes.push(child);
             }
           });
         }
       });
-      currentLayer = nodes.filter(n => nextLayerIds.has(n.id));
+      nodesToProcess = nextLayerNodes;
       layerIndex++;
     }
 
@@ -662,38 +670,85 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       }
     });
 
-    // Group nodes by layer
-    const layers: { [layer: number]: string[] } = {};
-    Object.entries(nodeLayers).forEach(([id, layer]) => {
-      if (!layers[layer]) layers[layer] = [];
-      layers[layer].push(id);
+    const maxLayer = Math.max(0, ...Object.values(nodeLayers));
+    const layersMap = new Map<number, Node[]>();
+    nodes.forEach(node => {
+      const l = nodeLayers[node.id] ?? 0;
+      const layerNodes = layersMap.get(l) ?? [];
+      layerNodes.push(node);
+      layersMap.set(l, layerNodes);
     });
 
-    const HORIZONTAL_SPACING = 300;
-    const VERTICAL_SPACING = 200;
-    const CANVAS_CENTER_X = 600;
-    const START_Y = 100;
+    // 2. Order nodes within layers for symmetry
+    const orderedIdsByLayer = new Map<number, string[]>();
+    
+    // Layer 0: Initial ordering
+    const layer0 = (layersMap.get(0) ?? []).sort((a, b) => {
+      if (direction === 'vertical') return a.x - b.x;
+      return a.y - b.y;
+    });
+    orderedIdsByLayer.set(0, layer0.map(n => n.id));
 
-    const newNodes = nodes.map(node => {
-      const layer = nodeLayers[node.id] || 0;
-      const nodesInLayer = layers[layer];
-      const indexInLayer = nodesInLayer.indexOf(node.id);
-      const layerWidth = (nodesInLayer.length - 1) * HORIZONTAL_SPACING;
+    // Subsequent layers: Sort by average position of parents in previous layer
+    for (let l = 1; l <= maxLayer; l++) {
+      const currentLayerNodes = layersMap.get(l) ?? [];
+      const prevLayerIds = orderedIdsByLayer.get(l - 1) ?? [];
       
+      const sorted = [...currentLayerNodes].sort((a, b) => {
+        const getAvgParentPos = (nodeId: string) => {
+          const parentEdges = edges.filter(e => e.target === nodeId);
+          if (parentEdges.length === 0) return prevLayerIds.length / 2;
+          const parentPositions = parentEdges.map(e => {
+            const idx = prevLayerIds.indexOf(e.source);
+            return idx !== -1 ? idx : prevLayerIds.length / 2;
+          });
+          return parentPositions.reduce((s, p) => s + p, 0) / parentPositions.length;
+        };
+        return getAvgParentPos(a.id) - getAvgParentPos(b.id);
+      });
+      orderedIdsByLayer.set(l, sorted.map(n => n.id));
+    }
+
+    // 3. Calculate positions for symmetry
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const viewportWidth = rect?.width ?? 1200;
+    const viewportHeight = rect?.height ?? 800;
+    
+    // We want the workflow to be centered in the view
+    const visibleCenterX = viewportWidth / (2 * zoom) - viewOffset.x;
+    const visibleCenterY = viewportHeight / (2 * zoom) - viewOffset.y;
+
+    // Calculate the total span of each layer to center it properly
+    const layerSpans = new Map<number, number>();
+    layersMap.forEach((layerNodes, layer) => {
+      layerSpans.set(layer, (layerNodes.length - 1) * (direction === 'horizontal' ? SPACING_Y : SPACING_X));
+    });
+
+    // Calculate total graph dimensions for centering
+    const totalLayers = maxLayer + 1;
+    const graphSpan = (totalLayers - 1) * (direction === 'horizontal' ? SPACING_X : SPACING_Y);
+    
+    const newNodes = nodes.map(node => {
+      const layer = nodeLayers[node.id] ?? 0;
+      const layerIds = orderedIdsByLayer.get(layer) ?? [node.id];
+      const indexInLayer = layerIds.indexOf(node.id);
+      
+      // offsetInLayer is 0 for single node, -0.5 and 0.5 for 2 nodes, etc.
+      const offsetInLayer = indexInLayer - (layerIds.length - 1) / 2;
+
       if (direction === 'horizontal') {
-        // Horizontal: Layers go left to right, nodes in layer distributed vertically
-        const layerHeight = (nodesInLayer.length - 1) * VERTICAL_SPACING;
+        const startX = visibleCenterX - graphSpan / 2;
         return {
           ...node,
-          x: 100 + layer * HORIZONTAL_SPACING,
-          y: 300 + indexInLayer * VERTICAL_SPACING - layerHeight / 2
+          x: startX + layer * SPACING_X - NODE_WIDTH / 2,
+          y: visibleCenterY + offsetInLayer * SPACING_Y - NODE_HEIGHT / 2,
         };
       } else {
-        // Vertical: Layers go top to bottom, nodes in layer distributed horizontally
+        const startY = visibleCenterY - graphSpan / 2;
         return {
           ...node,
-          x: CANVAS_CENTER_X + indexInLayer * HORIZONTAL_SPACING - layerWidth / 2,
-          y: START_Y + layer * VERTICAL_SPACING
+          x: visibleCenterX + offsetInLayer * SPACING_X - NODE_WIDTH / 2,
+          y: startY + layer * SPACING_Y - NODE_HEIGHT / 2,
         };
       }
     });
@@ -802,21 +857,20 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     if (!linkingSource) return '';
     const source = nodes.find(n => n.id === linkingSource.id);
     if (!source) return '';
-    const nodeWidth = 256; // w-64
-    const nodeHeight = 120; // Approx
+    
     let x1: number, y1: number;
     
     if (layoutDirection === 'horizontal') {
-      x1 = source.x + nodeWidth;
-      y1 = source.y + nodeHeight / 2;
+      x1 = source.x + NODE_WIDTH;
+      y1 = source.y + NODE_HEIGHT / 2;
       if (source.type === 'condition') {
-        y1 = source.y + (linkingSource.port === 'true' ? nodeHeight * 0.3 : nodeHeight * 0.7);
+        y1 = source.y + (linkingSource.port === 'true' ? NODE_HEIGHT * 0.3 : NODE_HEIGHT * 0.7);
       }
     } else {
-      x1 = source.x + nodeWidth / 2;
-      y1 = source.y + nodeHeight;
+      x1 = source.x + NODE_WIDTH / 2;
+      y1 = source.y + NODE_HEIGHT;
       if (source.type === 'condition') {
-        x1 = source.x + (linkingSource.port === 'true' ? nodeWidth * 0.3 : nodeWidth * 0.7);
+        x1 = source.x + (linkingSource.port === 'true' ? NODE_WIDTH * 0.3 : NODE_WIDTH * 0.7);
       }
     }
     
@@ -1328,38 +1382,36 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 if (!source || !target) return null;
                 
                 let x1: number, y1: number, x2: number, y2: number;
-                const nodeWidth = 256; // w-64 = 16rem = 256px
-                const nodeHeight = 120; // Approx height
 
                 if (layoutDirection === 'horizontal') {
                   // Horizontal: Source right, Target left
-                  x1 = source.x + nodeWidth;
-                  y1 = source.y + nodeHeight / 2;
+                  x1 = source.x + NODE_WIDTH;
+                  y1 = source.y + NODE_HEIGHT / 2;
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      y1 = source.y + nodeHeight * 0.3;
+                      y1 = source.y + NODE_HEIGHT * 0.3;
                     } else if (edge.sourcePort === 'false') {
-                      y1 = source.y + nodeHeight * 0.7;
+                      y1 = source.y + NODE_HEIGHT * 0.7;
                     }
                   }
 
                   x2 = target.x;
-                  y2 = target.y + nodeHeight / 2;
+                  y2 = target.y + NODE_HEIGHT / 2;
                 } else {
                   // Vertical: Source bottom, Target top
-                  x1 = source.x + nodeWidth / 2;
-                  y1 = source.y + nodeHeight;
+                  x1 = source.x + NODE_WIDTH / 2;
+                  y1 = source.y + NODE_HEIGHT;
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      x1 = source.x + nodeWidth * 0.3;
+                      x1 = source.x + NODE_WIDTH * 0.3;
                     } else if (edge.sourcePort === 'false') {
-                      x1 = source.x + nodeWidth * 0.7;
+                      x1 = source.x + NODE_WIDTH * 0.7;
                     }
                   }
 
-                  x2 = target.x + nodeWidth / 2;
+                  x2 = target.x + NODE_WIDTH / 2;
                   y2 = target.y;
                 }
 
