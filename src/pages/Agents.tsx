@@ -10,10 +10,21 @@ import {
   FileText, 
   Share2,
   Trash2,
-  Power
+  Power,
+  BarChart3,
+  Lock,
+  PenTool,
+  CheckCircle2,
+  Settings2,
+  Microscope,
+  Headphones,
+  TrendingUp,
+  DollarSign,
+  Scale,
+  Edit2
 } from 'lucide-react';
 import { useAgentStore } from '../store/agentStore';
-import { AgentRole } from '../types';
+import { Agent, AgentRole } from '../types';
 import TaskAssignment from '../components/TaskAssignment';
 import PerformanceChart from '../components/PerformanceChart';
 import { useNotificationStore } from '../store/notificationStore';
@@ -31,6 +42,16 @@ const roleIcons: Record<AgentRole, React.ElementType> = {
   output: Share2,
   prompt_retriever: Search,
   local_deployer: Cpu,
+  data_analyst: BarChart3,
+  security_auditor: Lock,
+  content_writer: PenTool,
+  qa_engineer: CheckCircle2,
+  devops_specialist: Settings2,
+  research_assistant: Microscope,
+  customer_support: Headphones,
+  marketing_strategist: TrendingUp,
+  financial_advisor: DollarSign,
+  legal_consultant: Scale,
 };
 
 const roleColors: Record<AgentRole, string> = {
@@ -45,18 +66,30 @@ const roleColors: Record<AgentRole, string> = {
   output: 'text-emerald-600 bg-emerald-50',
   prompt_retriever: 'text-slate-600 bg-slate-50',
   local_deployer: 'text-cyan-600 bg-cyan-50',
+  data_analyst: 'text-orange-600 bg-orange-50',
+  security_auditor: 'text-red-600 bg-red-50',
+  content_writer: 'text-pink-600 bg-pink-50',
+  qa_engineer: 'text-green-600 bg-green-50',
+  devops_specialist: 'text-slate-700 bg-slate-100',
+  research_assistant: 'text-violet-600 bg-violet-50',
+  customer_support: 'text-yellow-600 bg-yellow-50',
+  marketing_strategist: 'text-fuchsia-600 bg-fuchsia-50',
+  financial_advisor: 'text-emerald-700 bg-emerald-100',
+  legal_consultant: 'text-blue-800 bg-blue-100',
 };
 
 const Agents: React.FC = () => {
-  const { agents, fetchAgents, addAgent, toggleAgentStatus, deleteAgent, error: storeError } = useAgentStore();
+  const { agents, fetchAgents, addAgent, updateAgent, toggleAgentStatus, deleteAgent, error: storeError } = useAgentStore();
   const { addNotification } = useNotificationStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [newAgent, setNewAgent] = useState({
+  const [agentForm, setAgentForm] = useState({
     name: '',
     role: 'prompter' as AgentRole,
     priority: 5,
     capabilities: [] as string[],
+    system_prompt: '',
   });
 
   useEffect(() => {
@@ -69,17 +102,44 @@ const Agents: React.FC = () => {
     }
   }, [storeError, addNotification]);
 
-  const handleAddAgent = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    setEditingAgent(null);
+    setAgentForm({ name: '', role: 'prompter', priority: 5, capabilities: [], system_prompt: '' });
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (agent: Agent) => {
+    setEditingAgent(agent);
+    setAgentForm({
+      name: agent.name,
+      role: agent.role,
+      priority: agent.priority,
+      capabilities: agent.capabilities,
+      system_prompt: agent.system_prompt || '',
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addAgent({
-        ...newAgent,
-        is_active: true,
-        capabilities: newAgent.capabilities.filter(c => c.trim() !== ''),
-      });
-      addNotification('success', `Agent "${newAgent.name}" created successfully.`);
+      const capabilities = agentForm.capabilities.filter(c => c.trim() !== '');
+      
+      if (editingAgent) {
+        await updateAgent(editingAgent.id, {
+          ...agentForm,
+          capabilities,
+        });
+        addNotification('success', `Agent "${agentForm.name}" updated successfully.`);
+      } else {
+        await addAgent({
+          ...agentForm,
+          is_active: true,
+          capabilities,
+        });
+        addNotification('success', `Agent "${agentForm.name}" created successfully.`);
+      }
       setIsModalOpen(false);
-      setNewAgent({ name: '', role: 'prompter', priority: 5, capabilities: [] });
     } catch (err) {
       // Error is handled by store effect
     }
@@ -134,7 +194,7 @@ const Agents: React.FC = () => {
             Seed Agents
           </button>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={handleOpenCreateModal}
             className="flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
           >
             <Plus size={18} />
@@ -162,14 +222,23 @@ const Agents: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => handleOpenEditModal(agent)}
+                      className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
+                      title="Edit Agent"
+                    >
+                      <Edit2 size={18} />
+                    </button>
+                    <button
                       onClick={() => toggleAgentStatus(agent.id)}
                       className={`p-2 rounded-lg transition-colors ${agent.is_active ? 'text-teal-600 bg-teal-50' : 'text-slate-400 bg-slate-50'}`}
+                      title={agent.is_active ? 'Deactivate Agent' : 'Activate Agent'}
                     >
                       <Power size={18} />
                     </button>
                     <button 
                       onClick={() => deleteAgent(agent.id)}
                       className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete Agent"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -216,7 +285,7 @@ const Agents: React.FC = () => {
         <TaskAssignment agents={agents} />
       </div>
 
-      {/* Create Agent Modal */}
+      {/* Create/Edit Agent Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
           <motion.div
@@ -225,18 +294,18 @@ const Agents: React.FC = () => {
             className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
           >
             <div className="p-6 border-b border-slate-100">
-              <h3 className="text-xl font-bold text-slate-800">Create New AI Agent</h3>
+              <h3 className="text-xl font-bold text-slate-800">{editingAgent ? 'Edit Agent' : 'Create New AI Agent'}</h3>
               <p className="text-slate-500 text-sm">Configure your specialized agent's role and capabilities.</p>
             </div>
-            <form onSubmit={handleAddAgent} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div className="space-y-1">
                 <label className="text-sm font-semibold text-slate-700">Agent Name</label>
                 <input
                   required
                   type="text"
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                  value={newAgent.name}
-                  onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
+                  value={agentForm.name}
+                  onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })}
                   placeholder="e.g. Prompter-Alpha"
                 />
               </div>
@@ -245,27 +314,48 @@ const Agents: React.FC = () => {
                 <label className="text-sm font-semibold text-slate-700">Agent Role</label>
                 <select
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                  value={newAgent.role}
-                  onChange={(e) => setNewAgent({ ...newAgent, role: e.target.value as AgentRole })}
+                  value={agentForm.role}
+                  onChange={(e) => setAgentForm({ ...agentForm, role: e.target.value as AgentRole })}
                 >
-                  <option value="global_manager">Global Manager</option>
-                  <option value="prompter">Prompter</option>
-                  <option value="developer">Developer</option>
-                  <option value="ui_generator">UI Generator</option>
-                  <option value="prompt_manager">Prompt Manager</option>
-                  <option value="diagram_generator">Diagram Generator</option>
+                  <optgroup label="Core Roles">
+                    <option value="global_manager">Global Manager</option>
+                    <option value="prompter">Prompter</option>
+                    <option value="developer">Developer</option>
+                    <option value="ui_generator">UI Generator</option>
+                    <option value="prompt_manager">Prompt Manager</option>
+                    <option value="diagram_generator">Diagram Generator</option>
+                  </optgroup>
+                  <optgroup label="Specialized Roles">
+                    <option value="data_analyst">Data Analyst</option>
+                    <option value="security_auditor">Security Auditor</option>
+                    <option value="content_writer">Content Writer</option>
+                    <option value="qa_engineer">QA Engineer</option>
+                    <option value="devops_specialist">DevOps Specialist</option>
+                    <option value="research_assistant">Research Assistant</option>
+                    <option value="customer_support">Customer Support</option>
+                    <option value="marketing_strategist">Marketing Strategist</option>
+                    <option value="financial_advisor">Financial Advisor</option>
+                    <option value="legal_consultant">Legal Consultant</option>
+                  </optgroup>
+                  <optgroup label="System Roles">
+                    <option value="trigger">Trigger</option>
+                    <option value="evaluator">Evaluator</option>
+                    <option value="output">Output</option>
+                    <option value="prompt_retriever">Prompt Retriever</option>
+                    <option value="local_deployer">Local Deployer</option>
+                  </optgroup>
                 </select>
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm font-semibold text-slate-700">Priority ({newAgent.priority})</label>
+                <label className="text-sm font-semibold text-slate-700">Priority ({agentForm.priority})</label>
                 <input
                   type="range"
                   min="1"
                   max="10"
                   className="w-full accent-teal-500"
-                  value={newAgent.priority}
-                  onChange={(e) => setNewAgent({ ...newAgent, priority: parseInt(e.target.value) })}
+                  value={agentForm.priority}
+                  onChange={(e) => setAgentForm({ ...agentForm, priority: parseInt(e.target.value) })}
                 />
               </div>
 
@@ -274,13 +364,23 @@ const Agents: React.FC = () => {
                 <input
                   type="text"
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                  value={newAgent.capabilities.join(', ')}
-                  onChange={(e) => setNewAgent({ ...newAgent, capabilities: e.target.value.split(',').map(s => s.trim()) })}
+                  value={agentForm.capabilities.join(', ')}
+                  onChange={(e) => setAgentForm({ ...agentForm, capabilities: e.target.value.split(',').map(s => s.trim()) })}
                   placeholder="e.g. NLP, Code Gen, Debugging"
                 />
               </div>
 
-              <div className="flex gap-3 pt-4">
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">System Prompt</label>
+                <textarea
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all h-24 resize-none"
+                  value={agentForm.system_prompt}
+                  onChange={(e) => setAgentForm({ ...agentForm, system_prompt: e.target.value })}
+                  placeholder="Instructions for the agent..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4 sticky bottom-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -292,7 +392,7 @@ const Agents: React.FC = () => {
                   type="submit"
                   className="flex-1 px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 shadow-md shadow-teal-100 transition-all"
                 >
-                  Create Agent
+                  {editingAgent ? 'Update Agent' : 'Create Agent'}
                 </button>
               </div>
             </form>
