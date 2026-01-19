@@ -172,6 +172,7 @@ const Agents: React.FC = () => {
                 'devops_specialist', 'research_assistant', 'customer_support', 
                 'marketing_strategist', 'financial_advisor', 'legal_consultant'
               ];
+              const systemRoles: AgentRole[] = ['trigger', 'evaluator', 'output', 'prompt_retriever', 'local_deployer'];
               
               const names: Record<AgentRole, string> = {
                 global_manager: 'Architect Prime',
@@ -197,7 +198,7 @@ const Agents: React.FC = () => {
                 legal_consultant: 'Compliance Pro'
               };
 
-              const allRoles = [...coreRoles, ...specializedRoles];
+              const allRoles = [...coreRoles, ...specializedRoles, ...systemRoles];
               let seededCount = 0;
 
               for (const role of allRoles) {

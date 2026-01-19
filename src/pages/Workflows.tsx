@@ -20,6 +20,7 @@ import { useAgentStore } from '../store/agentStore';
 import { format } from 'date-fns';
 import WorkflowDesigner from '../components/WorkflowDesigner';
 import { useNotificationStore } from '../store/notificationStore';
+import { AgentRole } from '../types';
 
 const Workflows: React.FC = () => {
   const { workflows, fetchWorkflows, createWorkflow, deleteWorkflow, executeWorkflow, updateWorkflow, createWorkflowFromPrompt, error: storeError } = useWorkflowStore();
@@ -85,29 +86,52 @@ const Workflows: React.FC = () => {
 
   const handleCreateUltimateWorkflow = async () => {
      // Seed agents if they don't exist
-    const roles: any[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator', 'prompt_retriever', 'local_deployer'];
-    const names = {
+    const coreRoles: AgentRole[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
+    const specializedRoles: AgentRole[] = [
+      'data_analyst', 'security_auditor', 'content_writer', 'qa_engineer', 
+      'devops_specialist', 'research_assistant', 'customer_support', 
+      'marketing_strategist', 'financial_advisor', 'legal_consultant'
+    ];
+    const systemRoles: AgentRole[] = ['trigger', 'evaluator', 'output', 'prompt_retriever', 'local_deployer'];
+    
+    const names: Record<AgentRole, string> = {
       global_manager: 'Architect Prime',
       prompter: 'Prompt Engineer',
       developer: 'Full-Stack Dev',
       ui_generator: 'UI Master',
       prompt_manager: 'Context Guardian',
       diagram_generator: 'System Visualizer',
-      prompt_retriever: 'Prompt Collector',
-      local_deployer: 'Local Host Runner'
+      trigger: 'Event Watcher',
+      evaluator: 'Quality Judge',
+      output: 'Response Formatter',
+      prompt_retriever: 'Memory Searcher',
+      local_deployer: 'Edge Deployer',
+      data_analyst: 'Insights Engine',
+      security_auditor: 'Guard Dog',
+      content_writer: 'Creative Pen',
+      qa_engineer: 'Bug Hunter',
+      devops_specialist: 'Cloud Runner',
+      research_assistant: 'Knowledge Base',
+      customer_support: 'User Helper',
+      marketing_strategist: 'Growth Hacker',
+      financial_advisor: 'Budget Planner',
+      legal_consultant: 'Compliance Pro'
     };
      
-     for (const role of roles) {
-       if (!agents.find(a => a.role === role)) {
-         await useAgentStore.getState().addAgent({
-           name: names[role as keyof typeof names],
-           role,
-           priority: role === 'global_manager' ? 10 : 5,
-           capabilities: ['Autonomous Execution', 'LLM reasoning'],
-           is_active: true
-         });
-       }
-     }
+    const allRoles = [...coreRoles, ...specializedRoles, ...systemRoles];
+    
+    for (const role of allRoles) {
+      if (!agents.find(a => a.role === role)) {
+        await useAgentStore.getState().addAgent({
+          name: names[role as keyof typeof names] || `${role.replace('_', ' ')} Agent`,
+          role: role as AgentRole,
+          priority: role === 'global_manager' ? 10 : 5,
+          capabilities: ['Autonomous Execution', 'LLM reasoning', 'Role-specific expertise'],
+          is_active: true,
+          system_prompt: `You are a ${role.replace('_', ' ')}. Your goal is to provide high-quality output for your specific domain.`
+        });
+      }
+    }
      
      // Re-fetch agents to get updated IDs
      await fetchAgents();
@@ -119,8 +143,11 @@ const Workflows: React.FC = () => {
      const ui = updatedAgents.find(a => a.role === 'ui_generator');
      const promptManager = updatedAgents.find(a => a.role === 'prompt_manager');
      const diagram = updatedAgents.find(a => a.role === 'diagram_generator');
-    const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
-    const localDeployer = updatedAgents.find(a => a.role === 'local_deployer');
+     const promptRetriever = updatedAgents.find(a => a.role === 'prompt_retriever');
+     const localDeployer = updatedAgents.find(a => a.role === 'local_deployer');
+     const dataAnalyst = updatedAgents.find(a => a.role === 'data_analyst');
+     const qaEngineer = updatedAgents.find(a => a.role === 'qa_engineer');
+     const securityAuditor = updatedAgents.find(a => a.role === 'security_auditor');
 
     const configuration = {
       nodes: [
@@ -168,8 +195,11 @@ const Workflows: React.FC = () => {
         { id: 'n_stack', label: 'Recommend Tech Stack', type: 'action', x: 860, y: 1860, agentId: prompter?.id, description: 'Suggest a compatible stack and justify trade-offs.' },
         { id: 'c_resources', label: 'Resources Adequate?', type: 'condition', x: 600, y: 1990, agentId: manager?.id, config: { conditionTrue: 'Adequate', conditionFalse: 'Insufficient' }, description: 'Assess feasibility vs budget and delivery constraints.' },
         { id: 'n_scope', label: 'Scope Reduction Plan', type: 'action', x: 860, y: 1990, agentId: manager?.id, description: 'Propose phased delivery and cut/defers to fit budget.' },
+        
+        { id: 'n_data_analysis', label: 'Data Architecture Review', type: 'action', x: 340, y: 1990, agentId: dataAnalyst?.id, description: 'Analyze data requirements and suggest optimal storage/schema patterns.' },
+
         { id: 'c_security', label: 'High Security/Compliance Needed?', type: 'condition', x: 600, y: 2120, agentId: manager?.id, config: { conditionTrue: 'High', conditionFalse: 'Standard' }, description: 'Decide if extra security/compliance controls are required.' },
-        { id: 'n_security', label: 'Security & Compliance Plan', type: 'action', x: 860, y: 2120, agentId: developer?.id, description: 'Define threat model, auth hardening, logging, data handling, and compliance checklist.' },
+        { id: 'n_security', label: 'Security & Compliance Plan', type: 'action', x: 860, y: 2120, agentId: securityAuditor?.id, description: 'Define threat model, auth hardening, logging, data handling, and compliance checklist.' },
 
         { id: 'c_auth', label: 'Auth Needed?', type: 'condition', x: 600, y: 2250, agentId: manager?.id, config: { conditionTrue: 'Auth', conditionFalse: 'No Auth' }, description: 'If auth_required is true, decision=true.' },
         { id: 'n_auth', label: 'Auth Implementation Plan', type: 'action', x: 860, y: 2250, agentId: developer?.id, description: 'Plan auth flows, data model changes, and UI screens.' },
@@ -188,10 +218,10 @@ const Workflows: React.FC = () => {
         { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 2930, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
         { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 2930, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
 
-        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 3070, agentId: developer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
+        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 3070, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
         { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 3200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
 
-        { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 3330, agentId: manager?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
+        { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 3330, agentId: qaEngineer?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
         { id: 'n9', label: 'Refine & Debug', type: 'action', x: 860, y: 3330, agentId: developer?.id, description: 'Fix issues and bugs identified during QA/tests.' },
 
         { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 3470, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
@@ -224,6 +254,9 @@ const Workflows: React.FC = () => {
         { id: 'e-res-ok', source: 'c_resources', target: 'c_security', sourcePort: 'true' },
         { id: 'e-res-bad', source: 'c_resources', target: 'n_scope', sourcePort: 'false' },
         { id: 'e-res-next', source: 'n_scope', target: 'c_security' },
+        
+        { id: 'e-res-data', source: 'c_resources', target: 'n_data_analysis', sourcePort: 'true' },
+        { id: 'e-data-sec', source: 'n_data_analysis', target: 'c_security' },
 
         { id: 'e-sec-high', source: 'c_security', target: 'n_security', sourcePort: 'true' },
         { id: 'e-sec-std', source: 'c_security', target: 'c_auth', sourcePort: 'false' },
