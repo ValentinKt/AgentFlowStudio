@@ -256,10 +256,10 @@ const Agents: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleOpenEditModal(agent)}
-                        className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
-                        title="Edit Agent"
-                      >
+                          onClick={() => handleOpenEditModal(agent)}
+                          className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
+                          title="Edit Agent"
+                        >
                         <Edit2 size={18} />
                       </button>
                       <button
