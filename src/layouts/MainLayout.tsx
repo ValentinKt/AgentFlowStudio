@@ -48,7 +48,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <div className="w-10 h-10 bg-teal-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-teal-200">
             <Activity size={24} />
           </div>
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight">CrewManager</h1>
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight">AgentFlowStudio</h1>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1">

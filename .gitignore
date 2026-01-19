@@ -7,14 +7,34 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
 node_modules
 .pnpm-store
 dist
 dist-ssr
+build
 *.local
 
+# Vite cache
+.vite
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Test coverage
+coverage
+
+# Tooling caches
+.eslintcache
+.cache
+
 # Editor directories and files
-.vscode/*
+.vscode/
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -23,4 +43,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.tmp
+.history
+.tool-versions
 /generated/prisma
+
+# Deployments
+.vercel/
+.vercel/project.json
+
+# Supabase local artifacts
+supabase/.temp
+.supabase
+
+# Trae
+.trae/
+.trae/documents/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
