@@ -258,12 +258,20 @@ interface WorkflowState {
   error: string | null;
   activeNodeId: string | null;
   isExecuting: boolean;
-  executionStatus: 'idle' | 'running' | 'paused' | 'cancelling';
+  executionStatus: 'idle' | 'running' | 'paused' | 'cancelling' | 'failed';
   currentExecutionId: string | null;
+  failedNodeId: string | null;
   pendingInput: {
     nodeId: string;
     label: string;
-    type: 'text' | 'number' | 'select' | 'boolean';
+    fields?: Array<{
+      key: string;
+      label: string;
+      type: 'text' | 'number' | 'select' | 'boolean';
+      options?: string[];
+      defaultValue?: any;
+    }>;
+    type: 'text' | 'number' | 'select' | 'boolean' | 'multi';
     options?: string[];
     resolve: (value: any) => void;
   } | null;
@@ -271,7 +279,7 @@ interface WorkflowState {
   createWorkflow: (workflow: Omit<Workflow, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => Promise<string | undefined>;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
-  executeWorkflow: (workflowId: string, parameters: Record<string, unknown>) => Promise<void>;
+  executeWorkflow: (workflowId: string, parameters: Record<string, unknown>, resumeFromNodeId?: string) => Promise<void>;
   fetchExecutions: (workflowId: string) => Promise<void>;
   createWorkflowFromPrompt: (
     prompt: string
@@ -294,6 +302,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   isExecuting: false,
   executionStatus: 'idle',
   currentExecutionId: null,
+  failedNodeId: null,
   pendingInput: null,
 
   fetchWorkflows: async () => {
@@ -367,8 +376,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  executeWorkflow: async (workflowId, parameters) => {
-    set({ isLoading: true, error: null, isExecuting: true, executionStatus: 'running', currentExecutionId: null });
+  executeWorkflow: async (workflowId, parameters, resumeFromNodeId) => {
+    set({ isLoading: true, error: null, isExecuting: true, executionStatus: 'running', currentExecutionId: null, failedNodeId: null });
     let executionId: string | null = null;
     try {
       const workflow = get().workflows.find(w => w.id === workflowId);
@@ -408,14 +417,31 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         throw new Error(`Workflow validation failed: ${validationErrors.join(', ')}`);
       }
 
-      const createdExecution = await db.query(
-        'INSERT INTO executions (workflow_id, status, parameters, started_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-        [workflowId, 'running', JSON.stringify(parameters)]
-      );
+      // If resuming, we might want to fetch the last execution context
+      let initialContext = { ...parameters };
+      if (resumeFromNodeId) {
+        const lastExecution = get().executions.find(e => e.workflow_id === workflowId);
+        if (lastExecution) {
+          // In a real app, we'd fetch the context from the database for that execution
+          // For now, we'll try to use the last execution's parameters
+          initialContext = { ...lastExecution.parameters, ...parameters };
+          executionId = lastExecution.id;
+          set({ currentExecutionId: executionId });
+        }
+      }
 
-      const execution = normalizeExecutionRow(createdExecution.rows[0]);
-      executionId = execution.id;
-      set((state) => ({ executions: [execution, ...state.executions], isLoading: false, currentExecutionId: execution.id }));
+      if (!executionId) {
+        const createdExecution = await db.query(
+          'INSERT INTO executions (workflow_id, status, parameters, started_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
+          [workflowId, 'running', JSON.stringify(parameters)]
+        );
+        const execution = normalizeExecutionRow(createdExecution.rows[0]);
+        executionId = execution.id;
+        set((state) => ({ executions: [execution, ...state.executions], isLoading: false, currentExecutionId: execution.id }));
+      } else {
+        await db.query('UPDATE executions SET status = $1, started_at = NOW() WHERE id = $2', ['running', executionId]);
+        set({ isLoading: false });
+      }
 
       const waitForControls = async () => {
         if (get().executionStatus === 'cancelling') {
@@ -457,68 +483,61 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       for (const node of nodes) {
         workflowGraph.addNode(nodeName(node.id), async (state: typeof WorkflowExecutionState.State) => {
-          await waitForControls();
-          if (get().executionStatus === 'cancelling') throw new Error('EXECUTION_CANCELLED');
-
-          set({ activeNodeId: node.id });
-          const agent = agentForNode.get(node.id);
-          const agentIdUsed = agent?.id ?? null;
-          const { model, modelName } = createModelForAgent(agent || {});
-          const nowIso = () => new Date().toISOString();
-
-          const taskInput = {
-            nodeId: node.id,
-            nodeType: node.type,
-            label: node.label ?? '',
-            description: node.description ?? '',
-            inputKey: node.type === 'input' ? resolveInputKey(node) : undefined,
-          };
-
-          const pending = await db.query(
-            'INSERT INTO tasks (execution_id, agent_id, description, status, input, parameters, model_name, status_transitions) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-            [
-              execution.id,
-              agentIdUsed,
-              node.label || node.description || 'Workflow step',
-              'pending',
-              JSON.stringify(taskInput),
-              JSON.stringify(state.context),
-              modelName,
-              JSON.stringify([{ status: 'pending', at: nowIso() }]),
-            ]
-          );
-          const taskRow = pending.rows[0] as any;
-          const taskId = taskRow?.id as string | undefined;
-          await db.query(
-            "UPDATE tasks SET status = $2, started_at = NOW(), status_transitions = COALESCE(status_transitions, '[]'::jsonb) || $3::jsonb WHERE id = $1",
-            [taskId, 'running', JSON.stringify([{ status: 'running', at: nowIso() }])]
-          );
-
           const startTime = Date.now();
-
-          const baseContext: Record<string, unknown> = { ...(state.context || {}) };
-          const agentContext = {
-            ...baseContext,
-            agent_memory: agent?.working_memory || '',
-            agent_facts: (agent?.facts as Record<string, unknown> | undefined) || {},
-          };
-
-          let outputText = '';
+          const nowIso = () => new Date().toISOString();
+          let taskId: string | undefined;
           const tokenUsageEvents: unknown[] = [];
-          let outputPayload: Record<string, unknown> = {};
-          let contextDelta: Record<string, unknown> = {};
 
           try {
-            if (node.type === 'input') {
-              const inputTypeRaw = node.config?.['inputType'];
-              const inputType =
-                inputTypeRaw === 'text' ||
-                inputTypeRaw === 'number' ||
-                inputTypeRaw === 'select' ||
-                inputTypeRaw === 'boolean'
-                  ? inputTypeRaw
-                  : 'text';
+            await waitForControls();
+            if (get().executionStatus === 'cancelling') throw new Error('EXECUTION_CANCELLED');
 
+            set({ activeNodeId: node.id });
+            const agent = agentForNode.get(node.id);
+            const agentIdUsed = agent?.id ?? null;
+            const { model, modelName } = createModelForAgent(agent || {});
+
+            const taskInput = {
+              nodeId: node.id,
+              nodeType: node.type,
+              label: node.label ?? '',
+              description: node.description ?? '',
+              inputKey: node.type === 'input' ? resolveInputKey(node) : undefined,
+            };
+
+            const pending = await db.query(
+              'INSERT INTO tasks (execution_id, agent_id, description, status, input, parameters, model_name, status_transitions) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+              [
+                executionId,
+                agentIdUsed,
+                node.label || node.description || 'Workflow step',
+                'pending',
+                JSON.stringify(taskInput),
+                JSON.stringify(state.context),
+                modelName,
+                JSON.stringify([{ status: 'pending', at: nowIso() }]),
+              ]
+            );
+            const taskRow = pending.rows[0] as any;
+            taskId = taskRow?.id as string | undefined;
+            await db.query(
+              "UPDATE tasks SET status = $2, started_at = NOW(), status_transitions = COALESCE(status_transitions, '[]'::jsonb) || $3::jsonb WHERE id = $1",
+              [taskId, 'running', JSON.stringify([{ status: 'running', at: nowIso() }])]
+            );
+
+            const baseContext: Record<string, unknown> = { ...(state.context || {}) };
+            const agentContext = {
+              ...baseContext,
+              agent_memory: agent?.working_memory || '',
+              agent_facts: (agent?.facts as Record<string, unknown> | undefined) || {},
+            };
+
+            let outputText = '';
+            let outputPayload: Record<string, unknown> = {};
+            let contextDelta: Record<string, unknown> = {};
+
+            if (node.type === 'input') {
+              const isMultiInput = node.config?.['isMultiInput'] === true;
               const inputKey = resolveInputKey(node);
 
               const userValue = await new Promise((resolve) => {
@@ -537,15 +556,43 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                   }
                 }, 200);
 
-                set({
-                  pendingInput: {
-                    nodeId: node.id,
-                    label: node.label || inputKey,
-                    type: inputType,
-                    options: Array.isArray(node.config?.['options']) ? (node.config?.['options'] as string[]) : undefined,
-                    resolve: resolveOnce,
-                  },
-                });
+                if (isMultiInput) {
+                  const fields = parseJsonValue<any[]>(node.config?.['fields'], []);
+                  set({
+                    pendingInput: {
+                      nodeId: node.id,
+                      label: node.label || 'Multi-Input',
+                      type: 'multi',
+                      fields: fields.map(f => ({
+                        key: f.key,
+                        label: f.label || f.key,
+                        type: f.type || 'text',
+                        options: f.options,
+                        defaultValue: f.defaultValue
+                      })),
+                      resolve: resolveOnce,
+                    },
+                  });
+                } else {
+                  const inputTypeRaw = node.config?.['inputType'];
+                  const inputType =
+                    inputTypeRaw === 'text' ||
+                    inputTypeRaw === 'number' ||
+                    inputTypeRaw === 'select' ||
+                    inputTypeRaw === 'boolean'
+                      ? inputTypeRaw
+                      : 'text';
+
+                  set({
+                    pendingInput: {
+                      nodeId: node.id,
+                      label: node.label || inputKey,
+                      type: inputType,
+                      options: Array.isArray(node.config?.['options']) ? (node.config?.['options'] as string[]) : undefined,
+                      resolve: resolveOnce,
+                    },
+                  });
+                }
               });
 
               await waitForControls();
@@ -559,7 +606,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               tokenUsageEvents.push(res.metadata);
               outputText = res.content;
               outputPayload = { value: userValue, message: outputText };
-              contextDelta = { [inputKey]: userValue, lastOutput: outputText };
+              
+              if (isMultiInput && typeof userValue === 'object' && userValue !== null) {
+                contextDelta = { ...userValue, lastOutput: outputText };
+              } else {
+                contextDelta = { [inputKey]: userValue, lastOutput: outputText };
+              }
             } else if (node.type === 'condition') {
               const systemPrompt = `You are a critical evaluator. Decide if the condition is met.\nReturn ONLY valid JSON with this exact shape:\n{"decision": true|false, "reasoning": "string"}`;
               const first = await invokeWithContext(model, systemPrompt, `Evaluate this condition:\n${node.label || node.description || node.id}`, agentContext);
@@ -660,18 +712,25 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const cancelled = err instanceof Error && err.message === 'EXECUTION_CANCELLED';
             const status = cancelled ? 'cancelled' : 'failed';
             const message = err instanceof Error ? err.message : 'Unknown error';
-            await db.query(
-              "UPDATE tasks SET status = $2, completed_at = NOW(), duration_ms = $3, output = $4, token_usage = $5, result = $6, status_transitions = COALESCE(status_transitions, '[]'::jsonb) || $7::jsonb WHERE id = $1",
-              [
-                taskId,
-                status,
-                durationMs,
-                JSON.stringify({ error: message }),
-                JSON.stringify({ calls: tokenUsageEvents }),
-                JSON.stringify({ message }),
-                JSON.stringify([{ status, at: nowIso(), error: message }]),
-              ]
-            );
+
+            if (!cancelled) {
+              set({ executionStatus: 'failed', failedNodeId: node.id });
+            }
+
+            if (taskId) {
+              await db.query(
+                "UPDATE tasks SET status = $2, completed_at = NOW(), duration_ms = $3, output = $4, token_usage = $5, result = $6, status_transitions = COALESCE(status_transitions, '[]'::jsonb) || $7::jsonb WHERE id = $1",
+                [
+                  taskId,
+                  status,
+                  durationMs,
+                  JSON.stringify({ error: message }),
+                  JSON.stringify({ calls: tokenUsageEvents }),
+                  JSON.stringify({ message }),
+                  JSON.stringify([{ status, at: nowIso(), error: message }]),
+                ]
+              );
+            }
             throw err;
           }
         });
@@ -743,7 +802,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       await db.query('UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2', [
         'completed',
-        execution.id,
+        executionId,
       ]);
 
       set({ activeNodeId: null, isExecuting: false, executionStatus: 'idle', currentExecutionId: null, pendingInput: null });
