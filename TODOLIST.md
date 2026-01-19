@@ -25,4 +25,5 @@
 [x] Ensure edge rendering consistency using component-level constants (NODE_WIDTH/NODE_HEIGHT)
 [x] Fix workflow graph centering logic in Visual Workflow Designer
 [ ] Verify layout symmetry with complex parallel workflow branches
-[ ] Deploy to Vercel (Blocked by Rate Limit - Persistent error, manual deployment recommended)
+[x] Replace alignment buttons with MUI components (IconButton, Tooltip)
+[ ] Verify layout with sample workflows to ensure symmetry and centering

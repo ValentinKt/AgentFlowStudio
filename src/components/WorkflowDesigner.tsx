@@ -17,8 +17,22 @@ import {
   Columns,
   Rows,
   Settings,
-  MessageSquare
+  MessageSquare,
+  Target
 } from 'lucide-react';
+import { 
+  TextField, 
+  Select, 
+  MenuItem, 
+  FormControl, 
+  InputLabel, 
+  Button,
+  IconButton,
+  Tooltip,
+  Box,
+  Typography,
+  Divider
+} from '@mui/material';
 import { useAgentStore } from '../store/agentStore';
 import { useWorkflowStore } from '../store/workflowStore';
 import { ActionGraph, ConditionGraph, InputGraph, OutputGraph, TriggerGraph } from '../lib/graphFactory';
@@ -1296,33 +1310,42 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               Grid: {snapToGrid ? 'ON' : 'OFF'}
             </button>
 
-            <button 
-              onClick={() => alignNodes('horizontal')}
-              className={`flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
-              title="Align nodes horizontally"
-            >
-              <Columns size={14} />
-              Align Horizontal
-            </button>
-            <button 
-              onClick={() => alignNodes('vertical')}
-              className={`flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-500 text-teal-600 bg-teal-50/50' : 'border-slate-200 text-slate-600 hover:border-teal-500 hover:text-teal-600'}`}
-              title="Align nodes vertically"
-            >
-              <Rows size={14} />
-              Align Vertical
-            </button>
+            <div className="flex items-center gap-1">
+              <Tooltip title="Align nodes horizontally">
+                <IconButton 
+                  onClick={() => alignNodes('horizontal')}
+                  className={`!rounded-xl transition-all ${layoutDirection === 'horizontal' ? '!bg-teal-50 !text-teal-600 !border-teal-500' : '!text-slate-600 hover:!text-teal-600'}`}
+                  size="small"
+                >
+                  <Columns size={16} />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Align nodes vertically">
+                <IconButton 
+                  onClick={() => alignNodes('vertical')}
+                  className={`!rounded-xl transition-all ${layoutDirection === 'vertical' ? '!bg-teal-50 !text-teal-600 !border-teal-500' : '!text-slate-600 hover:!text-teal-600'}`}
+                  size="small"
+                >
+                  <Rows size={16} />
+                </IconButton>
+              </Tooltip>
+            </div>
+
             <div className="w-px h-6 bg-slate-100 mx-1" />
-            <button 
-              onClick={() => {
-                setViewOffset({ x: 0, y: 0 });
-                setZoom(1);
-              }}
-              className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-teal-500 hover:border-teal-500 transition-all shadow-sm"
-              title="Reset view"
-            >
-              <Maximize2 size={16} />
-            </button>
+
+            <Tooltip title="Center View">
+              <IconButton 
+                onClick={() => {
+                  setViewOffset({ x: 0, y: 0 });
+                  setZoom(1);
+                }}
+                className="!rounded-xl !text-slate-600 hover:!text-teal-600"
+                size="small"
+              >
+                <Target size={16} />
+              </IconButton>
+            </Tooltip>
             <button 
               onClick={runSimulation}
               className={`p-3 rounded-xl shadow-lg transition-all active:scale-95 ml-2 ${effectiveIsExecuting ? 'bg-red-500 hover:bg-red-600' : 'bg-teal-500 hover:bg-teal-600'}`}
