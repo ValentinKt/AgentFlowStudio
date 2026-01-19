@@ -53,6 +53,8 @@ interface Node {
     inputType?: 'text' | 'number' | 'select' | 'boolean';
     options?: string[]; // For select type
     key?: string;
+    isMultiInput?: boolean;
+    fields?: any[];
   };
 }
 
@@ -182,6 +184,8 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     activeNodeId: globalActiveNodeId,
     isExecuting: globalIsExecuting,
     executionStatus,
+    failedNodeId: globalFailedNodeId,
+    executeWorkflow,
     pauseExecution,
     resumeExecution,
     cancelExecution,
@@ -222,6 +226,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const effectiveActiveNodeId = globalIsExecuting ? globalActiveNodeId : activeNodeIdLocal;
   const effectiveIsExecuting = globalIsExecuting || isSimulating;
   const effectiveExecutionStatus = globalIsExecuting ? executionStatus : simulationStatus;
+  const effectiveFailedNodeId = globalIsExecuting ? globalFailedNodeId : null;
   const shouldShowFeedbackPanel = effectiveIsExecuting || feedbackLogs.length > 0;
 
   const stopSimulationRef = useRef(false);
@@ -370,15 +375,29 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     appendFeedbackLog({ kind: 'info', content: 'Cancelling…' });
   };
 
+  const handleRetry = () => {
+    if (globalIsExecuting && effectiveFailedNodeId && workflow.id) {
+      executeWorkflow(workflow.id, {}, effectiveFailedNodeId);
+    }
+  };
+
   const runSimulation = async () => {
     if (effectiveIsExecuting) {
-      if (globalIsExecuting) {
-        handleCancel();
-      } else {
-        handleCancel();
-      }
+      handleCancel();
       return;
     }
+
+    const waitForControls = async () => {
+      if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') {
+        throw new Error('SIMULATION_CANCELLED');
+      }
+      while (getSimulationStatus() === 'paused') {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') {
+          throw new Error('SIMULATION_CANCELLED');
+        }
+      }
+    };
 
     setIsSimulating(true);
     setSimulationStatus('running');
@@ -443,11 +462,14 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               }
             }, 200);
 
+            const isMultiInput = currentNode.config?.isMultiInput === true;
+
             useWorkflowStore.setState({
               pendingInput: {
                 nodeId: currentNode.id,
                 label: currentNode.label,
-                type: currentNode.config?.inputType || 'text',
+                type: isMultiInput ? 'multi' : (currentNode.config?.inputType || 'text'),
+                fields: isMultiInput ? (currentNode.config?.fields || []) : undefined,
                 options: currentNode.config?.options,
                 resolve: resolveOnce
               }
@@ -455,12 +477,17 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           });
           if (stopSimulationRef.current || getSimulationStatus() === 'cancelling') break;
 
-          currentContext = { ...currentContext, [currentNode.label || currentNode.id]: userInput };
+          if (currentNode.config?.isMultiInput === true && typeof userInput === 'object' && userInput !== null) {
+            currentContext = { ...currentContext, ...userInput };
+          } else {
+            currentContext = { ...currentContext, [currentNode.label || currentNode.id]: userInput };
+          }
+
           appendFeedbackLog({
             kind: 'input',
             nodeId: currentNode.id,
             nodeLabel: currentNode.label,
-            content: `Input received for **${currentNode.label}**:\n\n\`\`\`\n${String(userInput)}\n\`\`\``,
+            content: `Input received for **${currentNode.label}**:\n\n\`\`\`json\n${JSON.stringify(userInput, null, 2)}\n\`\`\``,
           });
 
           const store = useAgentStore.getState();
@@ -486,7 +513,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
           const graph = new InputGraph(agent || { name: 'User Input', role: 'input' as any });
           try {
-            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext);
+            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext, waitForControls);
           } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             appendFeedbackLog({
@@ -535,7 +562,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   : new ActionGraph(agent || { name: 'System Agent', role: 'developer' as any });
 
           try {
-            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext);
+            graphResult = await graph.execute(currentNode.label || currentNode.description || 'Task', currentContext, waitForControls);
           } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             appendFeedbackLog({
@@ -1035,43 +1062,161 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
                   {selectedNode.type === 'input' && (
                     <div className="space-y-4 pt-2 border-t border-slate-100">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Context Key</label>
+                      <div className="flex items-center gap-2 py-1">
                         <input
-                          type="text"
-                          value={selectedNode.config?.key || ''}
+                          type="checkbox"
+                          id="isMultiInput"
+                          checked={selectedNode.config?.isMultiInput || false}
                           onChange={(e) =>
-                            updateNode(selectedNode.id, { config: { ...selectedNode.config, key: e.target.value } })
+                            updateNode(selectedNode.id, {
+                              config: {
+                                ...selectedNode.config,
+                                isMultiInput: e.target.checked,
+                                fields: e.target.checked ? (selectedNode.config?.fields || [{ key: 'field1', label: 'Field 1', type: 'text' }]) : undefined
+                              }
+                            })
                           }
-                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
-                          placeholder="e.g. user_name"
+                          className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500"
                         />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Input Type</label>
-                        <select 
-                          value={selectedNode.config?.inputType || 'text'}
-                          onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, inputType: e.target.value as any } })}
-                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
-                        >
-                          <option value="text">Text Input</option>
-                          <option value="number">Number Input</option>
-                          <option value="boolean">Toggle / Checkbox</option>
-                          <option value="select">Dropdown Selection</option>
-                        </select>
+                        <label htmlFor="isMultiInput" className="text-[10px] font-bold text-slate-700 uppercase">
+                          Enable Multi-Input
+                        </label>
                       </div>
 
-                      {selectedNode.config?.inputType === 'select' && (
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase">Options (comma separated)</label>
-                          <input 
-                            type="text" 
-                            value={selectedNode.config?.options?.join(', ') || ''}
-                            onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, options: e.target.value.split(',').map(s => s.trim()) } })}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
-                            placeholder="Option 1, Option 2, ..."
-                          />
+                      {selectedNode.config?.isMultiInput ? (
+                        <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fields</label>
+                            <button
+                              onClick={() => {
+                                const fields = [...(selectedNode.config?.fields || [])];
+                                fields.push({ key: `field${fields.length + 1}`, label: `Field ${fields.length + 1}`, type: 'text' });
+                                updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                              }}
+                              className="p-1 text-teal-600 hover:bg-teal-100 rounded-lg transition-colors"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                          <div className="space-y-3">
+                            {selectedNode.config?.fields?.map((field: any, idx: number) => (
+                              <div key={idx} className="p-2 bg-white border border-slate-200 rounded-lg space-y-2 relative group/field">
+                                <button
+                                  onClick={() => {
+                                    const fields = selectedNode.config?.fields?.filter((_: any, i: number) => i !== idx);
+                                    updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                                  }}
+                                  className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/field:opacity-100 transition-opacity shadow-sm"
+                                >
+                                  <X size={10} />
+                                </button>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-bold text-slate-400 uppercase">Key</label>
+                                    <input
+                                      type="text"
+                                      value={field.key}
+                                      onChange={(e) => {
+                                        const fields = [...(selectedNode.config?.fields || [])];
+                                        fields[idx] = { ...fields[idx], key: e.target.value };
+                                        updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                                      }}
+                                      className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] outline-none focus:border-teal-500"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-bold text-slate-400 uppercase">Label</label>
+                                    <input
+                                      type="text"
+                                      value={field.label}
+                                      onChange={(e) => {
+                                        const fields = [...(selectedNode.config?.fields || [])];
+                                        fields[idx] = { ...fields[idx], label: e.target.value };
+                                        updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                                      }}
+                                      className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] outline-none focus:border-teal-500"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[8px] font-bold text-slate-400 uppercase">Type</label>
+                                  <select
+                                    value={field.type}
+                                    onChange={(e) => {
+                                      const fields = [...(selectedNode.config?.fields || [])];
+                                      fields[idx] = { ...fields[idx], type: e.target.value };
+                                      updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                                    }}
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] outline-none focus:border-teal-500"
+                                  >
+                                    <option value="text">Text</option>
+                                    <option value="number">Number</option>
+                                    <option value="boolean">Boolean</option>
+                                    <option value="select">Select</option>
+                                  </select>
+                                </div>
+
+                                {field.type === 'select' && (
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-bold text-slate-400 uppercase">Options (comma separated)</label>
+                                    <input
+                                      type="text"
+                                      value={field.options?.join(', ') || ''}
+                                      onChange={(e) => {
+                                        const fields = [...(selectedNode.config?.fields || [])];
+                                        fields[idx] = { ...fields[idx], options: e.target.value.split(',').map(s => s.trim()) };
+                                        updateNode(selectedNode.id, { config: { ...selectedNode.config, fields } });
+                                      }}
+                                      className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] outline-none focus:border-teal-500"
+                                      placeholder="Option 1, Option 2, ..."
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
+                      ) : (
+                        <>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Context Key</label>
+                            <input
+                              type="text"
+                              value={selectedNode.config?.key || ''}
+                              onChange={(e) =>
+                                updateNode(selectedNode.id, { config: { ...selectedNode.config, key: e.target.value } })
+                              }
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                              placeholder="e.g. user_name"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Input Type</label>
+                            <select 
+                              value={selectedNode.config?.inputType || 'text'}
+                              onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, inputType: e.target.value as any } })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                            >
+                              <option value="text">Text Input</option>
+                              <option value="number">Number Input</option>
+                              <option value="boolean">Toggle / Checkbox</option>
+                              <option value="select">Dropdown Selection</option>
+                            </select>
+                          </div>
+
+                          {selectedNode.config?.inputType === 'select' && (
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase">Options (comma separated)</label>
+                              <input 
+                                type="text" 
+                                value={selectedNode.config?.options?.join(', ') || ''}
+                                onChange={(e) => updateNode(selectedNode.id, { config: { ...selectedNode.config, options: e.target.value.split(',').map(s => s.trim()) } })}
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all"
+                                placeholder="Option 1, Option 2, ..."
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -1202,6 +1347,14 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   </div>
                   {effectiveIsExecuting ? (
                     <div className="mt-2 flex items-center justify-end gap-2">
+                      {effectiveExecutionStatus === 'failed' && (
+                        <button
+                          onClick={handleRetry}
+                          className="px-3 py-1.5 rounded-full bg-amber-600 text-white text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          Retry Step
+                        </button>
+                      )}
                       {effectiveExecutionStatus === 'paused' ? (
                         <button
                           onClick={handleResume}

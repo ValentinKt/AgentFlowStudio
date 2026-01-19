@@ -26,4 +26,10 @@
 [x] Fix workflow graph centering logic in Visual Workflow Designer
 [ ] Verify layout symmetry with complex parallel workflow branches
 [x] Replace alignment buttons with MUI components (IconButton, Tooltip)
-[ ] Verify layout with sample workflows to ensure symmetry and centering
+[x] Verify layout with sample workflows to ensure symmetry and centering
+[x] Refine multi-input configuration tools for input nodes (add/remove fields, key/label/type config)
+[x] Implement retry UI for failed nodes in the workflow execution
+[x] Implement robust retry logic for Ollama stream errors ("Did not receive done or success response")
+[ ] Add automatic retry logic for empty model responses in invokeWithContext and invokeModel
+[ ] Integrate pause/resume management within the retry loop of tasks
+[ ] Verify fix for "QA & Integration Check" stream error with simulation

@@ -236,19 +236,60 @@ const invokeWithContext = async (
   model: ChatOllama,
   systemPrompt: string,
   userPrompt: string,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
+  waitForControls?: () => Promise<void>
 ) => {
   const contextString =
     Object.keys(context).length > 0 ? JSON.stringify(context, null, 2).slice(0, 12_000) : '';
   const effectiveUserPrompt = contextString.length > 0 ? `${userPrompt}\n\nContext:\n${contextString}` : userPrompt;
-  const response = await model.invoke([
-    ['system', systemPrompt],
-    ['user', effectiveUserPrompt],
-  ]);
+  
+  const maxRetries = 3;
+  let lastError: Error | null = null;
 
-  const content = typeof response.content === 'string' ? response.content : String(response.content);
-  const meta = (response as any)?.response_metadata ?? (response as any)?.additional_kwargs ?? undefined;
-  return { content, metadata: meta };
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Check pause/cancel status before each attempt
+    if (waitForControls) await waitForControls();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    try {
+      const response = await model.invoke([
+        ['system', systemPrompt],
+        ['user', effectiveUserPrompt],
+      ], { signal: controller.signal });
+
+      const content = typeof response.content === 'string' ? response.content : String(response.content);
+      
+      if (!content || content.trim().length === 0) {
+        throw new Error("Model returned an empty response, possibly due to a stream interruption.");
+      }
+
+      const meta = (response as any)?.response_metadata ?? (response as any)?.additional_kwargs ?? undefined;
+      return { content, metadata: meta };
+    } catch (err) {
+      lastError = err as Error;
+      const errorMessage = lastError.message || String(lastError);
+      const isStreamError = errorMessage.includes("empty response") || errorMessage.includes("Did not receive done or success response in stream");
+      const isTimeout = lastError.name === 'AbortError' || errorMessage.toLowerCase().includes('timeout');
+
+      if (attempt < maxRetries - 1 && (isStreamError || isTimeout)) {
+        console.warn(`Attempt ${attempt + 1} failed (${isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      
+      if (isTimeout) {
+        throw new Error("Model execution timed out after 60 seconds. Please check if Ollama is responsive.");
+      }
+      throw lastError;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error("Unknown error during model invocation");
 };
 
 interface WorkflowState {
@@ -602,7 +643,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                 agent?.system_prompt ||
                 `You are an information collector. Format the data entered by the user for the workflow.`;
               const userPrompt = `Data collection: ${node.label || inputKey}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, { ...agentContext, [inputKey]: userValue });
+              const res = await invokeWithContext(model, systemPrompt, userPrompt, { ...agentContext, [inputKey]: userValue }, waitForControls);
               tokenUsageEvents.push(res.metadata);
               outputText = res.content;
               outputPayload = { value: userValue, message: outputText };
@@ -614,7 +655,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               }
             } else if (node.type === 'condition') {
               const systemPrompt = `You are a critical evaluator. Decide if the condition is met.\nReturn ONLY valid JSON with this exact shape:\n{"decision": true|false, "reasoning": "string"}`;
-              const first = await invokeWithContext(model, systemPrompt, `Evaluate this condition:\n${node.label || node.description || node.id}`, agentContext);
+              const first = await invokeWithContext(model, systemPrompt, `Evaluate this condition:\n${node.label || node.description || node.id}`, agentContext, waitForControls);
               tokenUsageEvents.push(first.metadata);
               let parsed = parseConditionDecision(first.content);
 
@@ -623,7 +664,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                   model,
                   systemPrompt,
                   `Your previous response was invalid JSON for the required schema.\nReturn ONLY valid JSON matching {"decision": true|false, "reasoning": "string"}.\n\nCondition:\n${node.label || node.description || node.id}\n\nPrevious response:\n${first.content}`,
-                  agentContext
+                  agentContext,
+                  waitForControls
                 );
                 tokenUsageEvents.push(retry.metadata);
                 parsed = parseConditionDecision(retry.content);
@@ -643,7 +685,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             } else if (node.type === 'trigger') {
               const systemPrompt = `You are a workflow trigger. Prepare the initial data for the workflow.`;
               const userPrompt = `Trigger: ${node.label || node.description || node.id}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext);
+              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
               tokenUsageEvents.push(res.metadata);
               outputText = res.content;
               outputPayload = { message: outputText };
@@ -651,7 +693,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             } else if (node.type === 'output') {
               const systemPrompt = `You are responsible for the final output. Format the results for the channel: ${(agentContext as any).outputType || 'database'}.`;
               const userPrompt = `Format this result: ${node.label || node.description || node.id}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext);
+              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
               tokenUsageEvents.push(res.metadata);
               outputText = res.content;
               outputPayload = { message: outputText };
@@ -665,12 +707,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               let contentOut = '';
               for (let iteration = 0; iteration < 2; iteration += 1) {
                 await waitForControls();
-                const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext);
+                const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
                 tokenUsageEvents.push(res.metadata);
                 contentOut = res.content;
 
                 const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
-                const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, agentContext);
+                const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, agentContext, waitForControls);
                 tokenUsageEvents.push(reflection.metadata);
                 if (reflection.content.includes('APPROVED')) break;
               }

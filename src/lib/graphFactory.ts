@@ -67,7 +67,7 @@ export abstract class BaseWorkflowGraph {
   /**
    * Exécute le graphe avec une tâche donnée
    */
-  async execute(task: string, context: Record<string, any> = {}) {
+  async execute(task: string, context: Record<string, any> = {}, waitForControls?: () => Promise<void>) {
     const agentName = this.agent.name || "Unknown Agent";
     console.log(`\n🚀 [START EXECUTION] Agent: ${agentName}, Task: ${task}`);
 
@@ -79,6 +79,9 @@ export abstract class BaseWorkflowGraph {
       context: context,
       status: "running",
     };
+
+    // Store waitForControls in the instance for invokeModel to use
+    (this as any)._waitForControls = waitForControls;
 
     try {
       const result = await app.invoke(initialState);
@@ -147,27 +150,65 @@ export abstract class BaseWorkflowGraph {
     const effectiveUserPrompt =
       contextString.length > 0 ? `${userPrompt}\n\nContext:\n${contextString}` : userPrompt;
     
-    console.log(`\n🤖 [AGENT CALL] ${agentName} (${agentRole})`);
-    console.log(
-      `📥 INPUT PROMPT:\n--- SYSTEM ---\n${systemPrompt}\n--- USER ---\n${effectiveUserPrompt}\n--------------`
-    );
-    
-    const startTime = Date.now();
-    try {
-      const response = await this.model.invoke([
-        ["system", systemPrompt],
-        ["user", effectiveUserPrompt],
-      ]);
-      const duration = Date.now() - startTime;
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Check pause/cancel status before each attempt if available
+      if ((this as any)._waitForControls) {
+        await (this as any)._waitForControls();
+      }
+
+      console.log(`\n🤖 [AGENT CALL] ${agentName} (${agentRole}) - Attempt ${attempt + 1}`);
+      console.log(
+        `📥 INPUT PROMPT:\n--- SYSTEM ---\n${systemPrompt}\n--- USER ---\n${effectiveUserPrompt}\n--------------`
+      );
       
-      console.log(`\n✅ [AGENT RESPONSE] ${agentName} (${duration}ms)`);
-      console.log(`📤 OUTPUT:\n${response.content}\n----------------\n`);
-      
-      return response.content;
-    } catch (error) {
-      console.error(`\n❌ [AGENT ERROR] ${agentName}:`, error);
-      throw error;
+      const startTime = Date.now();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      try {
+        const response = await this.model.invoke([
+          ["system", systemPrompt],
+          ["user", effectiveUserPrompt],
+        ], { signal: controller.signal });
+        const duration = Date.now() - startTime;
+        
+        const content = typeof response.content === "string" ? response.content : String(response.content);
+        
+        if (!content || content.trim().length === 0) {
+          throw new Error("Model returned an empty response, possibly due to a stream interruption.");
+        }
+
+        console.log(`\n✅ [AGENT RESPONSE] ${agentName} (${duration}ms)`);
+        console.log(`📤 OUTPUT:\n${content}\n----------------\n`);
+        
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        const errorMessage = lastError.message || String(lastError);
+        const isStreamError = errorMessage.includes("empty response") || errorMessage.includes("Did not receive done or success response in stream");
+        const isTimeout = lastError.name === 'AbortError' || errorMessage.toLowerCase().includes('timeout');
+
+        if (attempt < maxRetries - 1 && (isStreamError || isTimeout)) {
+          console.warn(`Attempt ${attempt + 1} failed for ${agentName} (${isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          continue;
+        }
+
+        if (isTimeout) {
+          console.error(`\n❌ [AGENT TIMEOUT] ${agentName} timed out after 60s`);
+          throw new Error(`Model execution for ${agentName} timed out after 60 seconds.`);
+        }
+        console.error(`\n❌ [AGENT ERROR] ${agentName}:`, error);
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
+
+    throw lastError || new Error(`Unknown error during model invocation for ${agentName}`);
   }
 }
 
