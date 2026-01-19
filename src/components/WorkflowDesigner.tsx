@@ -804,8 +804,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     
     if (isPort) return;
     
+    // Clear linking source if clicking background
+    if (!target.closest('.workflow-node') && !isButton) {
+      setLinkingSource(null);
+    }
+    
     const nodeElement = target.closest('.workflow-node') as HTMLElement;
-    if (nodeElement && !isButton) {
+    if (nodeElement && !isButton && !linkingSource) {
       const id = nodeElement.dataset.id;
       if (id) {
         setDraggedNodeId(id);
@@ -869,7 +874,6 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       if (hoveredNodeId && hoveredNodeId !== linkingSource.id) {
         completeLinking(hoveredNodeId);
       }
-      setLinkingSource(null);
     }
   };
 
@@ -1653,7 +1657,11 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 data-id={node.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSelectedNodeId(node.id);
+                  if (linkingSource && linkingSource.id !== node.id) {
+                    completeLinking(node.id);
+                  } else {
+                    setSelectedNodeId(node.id);
+                  }
                 }}
                 onMouseEnter={() => setHoveredNodeId(node.id)}
                 onMouseLeave={() => setHoveredNodeId(null)}
