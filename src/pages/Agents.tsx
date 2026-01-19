@@ -166,32 +166,64 @@ const Agents: React.FC = () => {
         <div className="flex gap-2">
           <button
             onClick={async () => {
-              const roles: AgentRole[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
-              const names = {
+              const coreRoles: AgentRole[] = ['global_manager', 'prompter', 'developer', 'ui_generator', 'prompt_manager', 'diagram_generator'];
+              const specializedRoles: AgentRole[] = [
+                'data_analyst', 'security_auditor', 'content_writer', 'qa_engineer', 
+                'devops_specialist', 'research_assistant', 'customer_support', 
+                'marketing_strategist', 'financial_advisor', 'legal_consultant'
+              ];
+              
+              const names: Record<AgentRole, string> = {
                 global_manager: 'Architect Prime',
                 prompter: 'Prompt Engineer',
                 developer: 'Full-Stack Dev',
                 ui_generator: 'UI Master',
                 prompt_manager: 'Context Guardian',
-                diagram_generator: 'System Visualizer'
+                diagram_generator: 'System Visualizer',
+                trigger: 'Event Watcher',
+                evaluator: 'Quality Judge',
+                output: 'Response Formatter',
+                prompt_retriever: 'Memory Searcher',
+                local_deployer: 'Edge Deployer',
+                data_analyst: 'Insights Engine',
+                security_auditor: 'Guard Dog',
+                content_writer: 'Creative Pen',
+                qa_engineer: 'Bug Hunter',
+                devops_specialist: 'Cloud Runner',
+                research_assistant: 'Knowledge Base',
+                customer_support: 'User Helper',
+                marketing_strategist: 'Growth Hacker',
+                financial_advisor: 'Budget Planner',
+                legal_consultant: 'Compliance Pro'
               };
-              for (const role of roles) {
+
+              const allRoles = [...coreRoles, ...specializedRoles];
+              let seededCount = 0;
+
+              for (const role of allRoles) {
                 if (!agents.find(a => a.role === role)) {
                   await addAgent({
-                    name: names[role as keyof typeof names],
+                    name: names[role] || `${role.replace('_', ' ')} Agent`,
                     role,
                     priority: role === 'global_manager' ? 10 : 5,
-                    capabilities: ['Autonomous Execution', 'LLM reasoning'],
-                    is_active: true
+                    capabilities: ['Autonomous Execution', 'LLM reasoning', 'Role-specific expertise'],
+                    is_active: true,
+                    system_prompt: `You are a ${role.replace('_', ' ')}. Your goal is to provide high-quality output for your specific domain.`
                   });
+                  seededCount++;
                 }
               }
-              addNotification('success', 'Essential agents seeded successfully.');
+              
+              if (seededCount > 0) {
+                addNotification('success', `${seededCount} new agents seeded successfully.`);
+              } else {
+                addNotification('info', 'All essential agents are already present.');
+              }
             }}
             className="flex items-center gap-2 bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-600 shadow-md shadow-indigo-100 transition-all"
           >
             <Zap size={18} />
-            Seed Agents
+            Seed All Agents
           </button>
           <button
             onClick={handleOpenCreateModal}
@@ -205,79 +237,109 @@ const Agents: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <AnimatePresence>
-          {filteredAgents.map((agent, index) => {
-            const Icon = roleIcons[agent.role];
-            return (
-              <motion.div
-                key={agent.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`p-3 rounded-xl ${roleColors[agent.role]}`}>
-                    <Icon size={24} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleOpenEditModal(agent)}
-                      className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
-                      title="Edit Agent"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => toggleAgentStatus(agent.id)}
-                      className={`p-2 rounded-lg transition-colors ${agent.is_active ? 'text-teal-600 bg-teal-50' : 'text-slate-400 bg-slate-50'}`}
-                      title={agent.is_active ? 'Deactivate Agent' : 'Activate Agent'}
-                    >
-                      <Power size={18} />
-                    </button>
-                    <button 
-                      onClick={() => deleteAgent(agent.id)}
-                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete Agent"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-base font-bold text-slate-800 truncate">{agent.name}</h4>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">{agent.role.replace('_', ' ')}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-bold text-teal-600">
-                      {(agent as any).performance?.success_rate || 90}%
-                    </span>
-                    <p className="text-[8px] text-slate-400 uppercase tracking-tighter font-bold">Efficiency</p>
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      <span>Learning Trend</span>
-                      <span className="text-emerald-500">Improving</span>
+          {filteredAgents.length > 0 ? (
+            filteredAgents.map((agent, index) => {
+              const Icon = roleIcons[agent.role];
+              return (
+                <motion.div
+                  key={agent.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ delay: index * 0.05 }}
+                  className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className={`p-3 rounded-xl ${roleColors[agent.role]}`}>
+                      <Icon size={24} />
                     </div>
-                    <PerformanceChart data={[70, 75, 72, 85, 82, 90, 88, 92]} />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenEditModal(agent)}
+                        className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
+                        title="Edit Agent"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => toggleAgentStatus(agent.id)}
+                        className={`p-2 rounded-lg transition-colors ${agent.is_active ? 'text-teal-600 bg-teal-50' : 'text-slate-400 bg-slate-50'}`}
+                        title={agent.is_active ? 'Deactivate Agent' : 'Activate Agent'}
+                      >
+                        <Power size={18} />
+                      </button>
+                      <button 
+                        onClick={() => deleteAgent(agent.id)}
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete Agent"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {agent.capabilities.map((cap) => (
-                      <span key={cap} className="text-[10px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">
-                        {cap}
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-base font-bold text-slate-800 truncate">{agent.name}</h4>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">{agent.role.replace('_', ' ')}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-xs font-bold text-teal-600">
+                        {(agent as any).performance?.success_rate || 90}%
                       </span>
-                    ))}
+                      <p className="text-[8px] text-slate-400 uppercase tracking-tighter font-bold">Efficiency</p>
+                    </div>
                   </div>
+
+                  <div className="mt-6 space-y-4">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <span>Learning Trend</span>
+                        <span className="text-emerald-500">Improving</span>
+                      </div>
+                      <PerformanceChart data={[70, 75, 72, 85, 82, 90, 88, 92]} />
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {agent.capabilities.map((cap) => (
+                        <span key={cap} className="text-[10px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">
+                          {cap}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-200"
+            >
+              <div className="inline-flex p-4 bg-slate-50 rounded-2xl mb-4">
+                <Shield className="text-slate-300" size={48} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">No Agents Found</h3>
+              <p className="text-slate-500 max-w-sm mx-auto mb-8">
+                {searchTerm 
+                  ? `No agents match your search for "${searchTerm}". Try a different term.`
+                  : "Start by creating your first specialized AI agent or seed the essential ones."
+                }
+              </p>
+              {!searchTerm && (
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={handleOpenCreateModal}
+                    className="flex items-center justify-center gap-2 bg-teal-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-600 transition-all shadow-lg shadow-teal-100"
+                  >
+                    <Plus size={20} />
+                    Create First Agent
+                  </button>
                 </div>
-              </motion.div>
-            );
-          })}
+              )}
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
