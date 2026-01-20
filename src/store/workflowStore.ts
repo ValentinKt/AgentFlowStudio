@@ -760,17 +760,23 @@ Return ONLY valid JSON:
               outputText = contentOut;
               outputPayload = { message: outputText, loopCount };
               const inputKey = resolveInputKey(node, agentContext);
+              console.log(`[Workflow] Input node ${node.id} using key: ${inputKey}`);
               
               let multiInputDelta: Record<string, any> = {};
               if (node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields'])) {
                 // Try to parse the output as JSON if it's a multi-input node
                 try {
-                  const parsed = JSON.parse(outputText);
+                  const cleanedOutput = outputText.trim();
+                  const jsonMatch = cleanedOutput.match(/\{[\s\S]*\}/);
+                  const jsonToParse = jsonMatch ? jsonMatch[0] : cleanedOutput;
+                  
+                  const parsed = JSON.parse(jsonToParse);
                   if (typeof parsed === 'object' && parsed !== null) {
                     multiInputDelta = parsed;
+                    console.log(`[Workflow] Successfully parsed multi-input JSON for node ${node.id}:`, multiInputDelta);
                   }
                 } catch (e) {
-                  console.warn(`[Workflow] Failed to parse multi-input output as JSON for node ${node.id}`);
+                  console.warn(`[Workflow] Failed to parse multi-input output as JSON for node ${node.id}. Output was: ${outputText.slice(0, 100)}...`);
                 }
               }
 
@@ -785,8 +791,11 @@ Return ONLY valid JSON:
             const derived = deriveWorkingMemoryAndFacts(outputText, agent?.facts as Record<string, unknown> | undefined);
             
             // Update global memory with a summary of the node's output
-            const globalMemoryUpdate = `${state.context.global_memory || ''}\n[${node.label || node.id}] ${outputText.slice(0, 200)}...`.trim();
+            const nodeTitle = node.label || node.id;
+            const shortOutput = outputText.length > 300 ? outputText.slice(0, 300) + '...' : outputText;
+            const globalMemoryUpdate = `${state.context.global_memory || ''}\n\n### ${nodeTitle}\n${shortOutput}`.trim();
             contextDelta.global_memory = globalMemoryUpdate;
+            console.log(`[Workflow] Updated global memory with output from node: ${node.id}`);
 
             if (agent?.id) {
               await db.query('UPDATE agents SET working_memory = $2, facts = $3 WHERE id = $1', [
@@ -894,7 +903,9 @@ Return ONLY valid JSON:
       }
 
       const app = workflowGraph.compile();
+      console.log(`[Workflow] Starting execution of workflow: ${workflow.name} (ID: ${executionId})`);
       await app.invoke({ context: { ...initialContext }, nodeOutputs: {} });
+      console.log(`[Workflow] Execution completed for workflow: ${workflow.name} (ID: ${executionId})`);
 
       await db.query('UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2', [
         'completed',
