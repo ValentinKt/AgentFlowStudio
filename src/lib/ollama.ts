@@ -2,9 +2,10 @@ import { ChatOllama } from "@langchain/ollama";
 
 export const OLLAMA_MODEL = (typeof import.meta !== "undefined" && import.meta.env?.OLLAMA_MODEL) || "gemini-3-flash-preview";
 export const OLLAMA_BASE_URL =
-  typeof window === "undefined"
+  (typeof import.meta !== "undefined" && import.meta.env?.OLLAMA_BASE_URL) ||
+  (typeof window === "undefined"
     ? "http://localhost:11434"
-    : `${window.location.origin}/ollama`;
+    : `${window.location.origin}/ollama`);
 
 /**
  * Initialize a LangChain Ollama chat model

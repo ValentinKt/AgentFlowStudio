@@ -9,3 +9,4 @@
 | 2026-01-18 | Linter | Invalid import syntax for lucide-react in WorkflowDesigner.tsx |
 | 2026-01-19 | Typecheck | TS2367: Unintentional comparison between "input" and "action" in WorkflowDesigner.tsx |
 | 2026-01-20 | Workflow | Ultimate App Creator AI: bash script output was not explicitly delivered to the user. (FIXED: Added explicit script detection and context storage) |
+| 2026-01-20 | Workflow | Connection Reset Error in UX Copy & Content Plan: connection reset by peer to ollama.com:443. (FIXED: Added robust retry logic and fixed OLLAMA_BASE_URL env handling) |

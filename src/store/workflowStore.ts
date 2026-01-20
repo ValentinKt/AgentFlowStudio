@@ -285,12 +285,19 @@ const invokeWithContext = async (
       return { content, metadata: meta };
     } catch (err) {
       lastError = err as Error;
-      const errorMessage = lastError.message || String(lastError);
-      const isStreamError = errorMessage.includes("empty response") || errorMessage.includes("Did not receive done or success response in stream");
-      const isTimeout = lastError.name === 'AbortError' || errorMessage.toLowerCase().includes('timeout');
+      const errorMessage = (lastError.message || String(lastError)).toLowerCase();
+      
+      const isStreamError = errorMessage.includes("empty response") || 
+                           errorMessage.includes("did not receive done or success response in stream");
+      const isTimeout = lastError.name === 'AbortError' || 
+                        errorMessage.includes('timeout') ||
+                        errorMessage.includes('etimedout');
+      const isConnectionReset = errorMessage.includes("connection reset") || 
+                               errorMessage.includes("econnreset") ||
+                               errorMessage.includes("peer reset");
 
-      if (attempt < maxRetries - 1 && (isStreamError || isTimeout)) {
-        console.warn(`Attempt ${attempt + 1} failed (${isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
+      if (attempt < maxRetries - 1 && (isStreamError || isTimeout || isConnectionReset)) {
+        console.warn(`Attempt ${attempt + 1} failed (${isConnectionReset ? 'Connection reset' : isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
         // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
         continue;
