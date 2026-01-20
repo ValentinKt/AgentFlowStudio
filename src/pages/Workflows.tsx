@@ -233,6 +233,7 @@ const Workflows: React.FC = () => {
         { id: 'n4', label: 'Context Retrieval', type: 'action', x: 800, y: 1510, agentId: promptManager?.id, description: 'Fetch relevant code patterns, documentation and libraries.' },
 
         { id: 'n5', label: 'Prompt Refinement', type: 'action', x: 600, y: 1650, agentId: prompter?.id, description: 'Optimize prompts for specific sub-agents and LLMs.' },
+        { id: 'n_orch', label: 'Task Decomposition Orchestrator', type: 'action', x: 600, y: 1720, agentId: manager?.id, description: 'Analyze each task, break it into atomic sub-tasks, and assign each sub-task to dedicated developer agents with clear outputs and shared integration constraints.' },
 
         { id: 'n6', label: 'UI/UX Generation', type: 'action', x: 400, y: 1790, agentId: ui?.id, description: 'Generate Tailwind CSS components and layout structure.' },
         { id: 'n7', label: 'Core Logic & API', type: 'action', x: 800, y: 1790, agentId: developer?.id, description: 'Implement backend functions, API routes and database logic.' },
@@ -240,7 +241,8 @@ const Workflows: React.FC = () => {
         { id: 'n_devops', label: 'DevOps & Observability Plan', type: 'action', x: 340, y: 1930, agentId: devopsSpecialist?.id, description: 'Define CI/CD, monitoring, and green infrastructure considerations.' },
         { id: 'n_content', label: 'UX Copy & Content Plan', type: 'action', x: 860, y: 1930, agentId: contentWriter?.id, description: 'Craft user-facing copy, onboarding cues, and microcopy guidelines.' },
 
-        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 2070, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
+        { id: 'n_synth', label: 'Synthesis & Integration', type: 'action', x: 600, y: 2030, agentId: developer?.id, description: 'Consolidate all sub-task outputs, resolve conflicts, enforce shared interfaces, and integrate into a single production-ready codebase.' },
+        { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 2170, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
         { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 2200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
 
         { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 2330, agentId: qaEngineer?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
@@ -295,13 +297,15 @@ const Workflows: React.FC = () => {
         { id: 'e2-4', source: 'n2', target: 'n4' },
         { id: 'e3-5', source: 'n3', target: 'n5' },
         { id: 'e4-5', source: 'n4', target: 'n5' },
-        { id: 'e5-6', source: 'n5', target: 'n6' },
-        { id: 'e5-7', source: 'n5', target: 'n7' },
+        { id: 'e5-orch', source: 'n5', target: 'n_orch' },
+        { id: 'e-orch-6', source: 'n_orch', target: 'n6' },
+        { id: 'e-orch-7', source: 'n_orch', target: 'n7' },
 
         { id: 'e6-content', source: 'n6', target: 'n_content' },
         { id: 'e7-devops', source: 'n7', target: 'n_devops' },
-        { id: 'e-content-tests', source: 'n_content', target: 'n_tests' },
-        { id: 'e-devops-tests', source: 'n_devops', target: 'n_tests' },
+        { id: 'e-content-synth', source: 'n_content', target: 'n_synth' },
+        { id: 'e-devops-synth', source: 'n_devops', target: 'n_synth' },
+        { id: 'e-synth-tests', source: 'n_synth', target: 'n_tests' },
         { id: 'e-tests-cond', source: 'n_tests', target: 'c_tests' },
         { id: 'e-tests-fail', source: 'c_tests', target: 'n9', sourcePort: 'false' },
         { id: 'e-tests-pass', source: 'c_tests', target: 'n8', sourcePort: 'true' },
