@@ -248,7 +248,9 @@ const Workflows: React.FC = () => {
 
         { id: 'n10', label: 'Localhost Deployment', type: 'action', x: 400, y: 2470, agentId: localDeployer?.id, description: 'Deploy the application to local development server on port 3000.' },
         { id: 'n12', label: 'Release Notes & Next Steps', type: 'action', x: 800, y: 2470, agentId: prompter?.id, description: 'Generate a concise delivery summary and next steps for the user.' },
-        { id: 'n11', label: 'Delivery Notification', type: 'output', x: 600, y: 2610, config: { outputType: 'slack' }, description: 'Notify stakeholders of successful build and local deployment.' },
+        { id: 'n_script', label: 'Bash Build Script', type: 'action', x: 600, y: 2610, agentId: developer?.id, description: 'Generate a single bash .sh script that recreates the full project from scratch. Include shebang, set -e, folder creation, file writes with cat <<\'EOF\', dependency install, tests, and run instructions.' },
+        { id: 'n11', label: 'Bash Script Output', type: 'output', x: 600, y: 2750, config: { outputType: 'database' }, description: 'Deliver the bash script output so the user can copy and execute it to recreate the app.' },
+        { id: 'n_notify', label: 'Delivery Notification', type: 'output', x: 600, y: 2890, config: { outputType: 'slack' }, description: 'Notify stakeholders that the build script and app package are ready.' },
       ],
       edges: [
         { id: 'e1-inputs', source: 'n1', target: 'i_multi' },
@@ -309,8 +311,10 @@ const Workflows: React.FC = () => {
 
         { id: 'e-qa-deploy', source: 'n8', target: 'n10', sourcePort: 'true' },
         { id: 'e-qa-notes', source: 'n8', target: 'n12', sourcePort: 'true' },
-        { id: 'e-deploy-out', source: 'n10', target: 'n11' },
-        { id: 'e-notes-out', source: 'n12', target: 'n11' },
+        { id: 'e-deploy-script', source: 'n10', target: 'n_script' },
+        { id: 'e-notes-script', source: 'n12', target: 'n_script' },
+        { id: 'e-script-out', source: 'n_script', target: 'n11' },
+        { id: 'e-output-notify', source: 'n11', target: 'n_notify' },
       ],
     };
 
