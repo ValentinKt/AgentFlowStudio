@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { db } from '../lib/db';
 import { Agent } from '../types';
 import { useUserStore } from './userStore';
-import { initializeOllamaAgent } from '../lib/ollama';
+import { initializeOllamaAgent, OLLAMA_MODEL } from '../lib/ollama';
 import { ActionGraph } from '../lib/graphFactory';
 
 const parseJsonValue = <T,>(value: unknown, fallback: T): T => {
@@ -97,7 +97,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           agent.is_active !== false, 
           user.id,
           agent.system_prompt || '',
-          JSON.stringify(agent.model_config || { model_name: 'gemini-3-flash-preview' }),
+          JSON.stringify(agent.model_config || { model_name: OLLAMA_MODEL }),
           agent.working_memory || '',
           JSON.stringify(agent.facts || {})
         ]

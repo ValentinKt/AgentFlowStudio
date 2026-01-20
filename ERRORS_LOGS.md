@@ -8,4 +8,4 @@
 | 2026-01-18 | Linter | Multiple 'activeNodeId' name conflicts in WorkflowDesigner.tsx |
 | 2026-01-18 | Linter | Invalid import syntax for lucide-react in WorkflowDesigner.tsx |
 | 2026-01-19 | Typecheck | TS2367: Unintentional comparison between "input" and "action" in WorkflowDesigner.tsx |
-| 2026-01-20 | Workflow | Ultimate App Creator AI: bash script output was not explicitly delivered to the user. |
+| 2026-01-20 | Workflow | Ultimate App Creator AI: bash script output was not explicitly delivered to the user. (FIXED: Added explicit script detection and context storage) |

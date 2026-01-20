@@ -7,6 +7,7 @@ import path from 'path';
 
 // https://vite.dev/config/
 export default defineConfig({
+  envPrefix: ['VITE_', 'OLLAMA_'],
   resolve: {
     alias: {
       'async_hooks': path.resolve(__dirname, 'src/mocks/async_hooks.js'),

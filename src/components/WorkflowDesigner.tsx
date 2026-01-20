@@ -216,8 +216,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
   const NODE_WIDTH = 256;
   const NODE_HEIGHT = 140;
-  const SPACING_X = 350;
-  const SPACING_Y = 250;
+  const SPACING_X = 420;
+  const SPACING_Y = 280;
+  const EDGE_OFFSET_STEP = 18;
+  const EDGE_OFFSET_CAP = 3;
 
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'paused' | 'cancelling'>('idle');
   const [activeNodeIdLocal, setActiveNodeIdLocal] = useState<string | null>(null);
@@ -937,6 +939,24 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       : `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${mousePos.x} ${mousePos.y - dy}, ${mousePos.x} ${mousePos.y}`;
   };
 
+  const outgoingBySource = new Map<string, Edge[]>();
+  const incomingByTarget = new Map<string, Edge[]>();
+  edges.forEach((edge) => {
+    const outgoing = outgoingBySource.get(edge.source) ?? [];
+    outgoing.push(edge);
+    outgoingBySource.set(edge.source, outgoing);
+    const incoming = incomingByTarget.get(edge.target) ?? [];
+    incoming.push(edge);
+    incomingByTarget.set(edge.target, incoming);
+  });
+
+  const getEdgeOffset = (index: number, total: number) => {
+    if (total <= 1) return 0;
+    const raw = (index - (total - 1) / 2) * EDGE_OFFSET_STEP;
+    const cap = EDGE_OFFSET_STEP * EDGE_OFFSET_CAP;
+    return Math.max(-cap, Math.min(cap, raw));
+  };
+
   return (
     <div className={`fixed z-50 transition-all duration-300 flex flex-col ${isFullScreen ? 'inset-0 bg-white' : 'inset-4 md:inset-10 bg-white rounded-3xl shadow-2xl border border-slate-200'}`}>
       {/* Designer Header */}
@@ -1591,36 +1611,42 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 if (!source || !target) return null;
                 
                 let x1: number, y1: number, x2: number, y2: number;
+                const sourceEdges = outgoingBySource.get(edge.source) ?? [];
+                const targetEdges = incomingByTarget.get(edge.target) ?? [];
+                const sourceIndex = Math.max(0, sourceEdges.findIndex((e) => e.id === edge.id));
+                const targetIndex = Math.max(0, targetEdges.findIndex((e) => e.id === edge.id));
+                const sourceOffset = getEdgeOffset(sourceIndex, sourceEdges.length);
+                const targetOffset = getEdgeOffset(targetIndex, targetEdges.length);
 
                 if (layoutDirection === 'horizontal') {
                   // Horizontal: Source right, Target left
                   x1 = source.x + NODE_WIDTH;
-                  y1 = source.y + NODE_HEIGHT / 2;
+                  y1 = source.y + NODE_HEIGHT / 2 + sourceOffset;
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      y1 = source.y + NODE_HEIGHT * 0.3;
+                      y1 = source.y + NODE_HEIGHT * 0.3 + sourceOffset;
                     } else if (edge.sourcePort === 'false') {
-                      y1 = source.y + NODE_HEIGHT * 0.7;
+                      y1 = source.y + NODE_HEIGHT * 0.7 + sourceOffset;
                     }
                   }
 
                   x2 = target.x;
-                  y2 = target.y + NODE_HEIGHT / 2;
+                  y2 = target.y + NODE_HEIGHT / 2 + targetOffset;
                 } else {
                   // Vertical: Source bottom, Target top
-                  x1 = source.x + NODE_WIDTH / 2;
+                  x1 = source.x + NODE_WIDTH / 2 + sourceOffset;
                   y1 = source.y + NODE_HEIGHT;
 
                   if (source.type === 'condition') {
                     if (edge.sourcePort === 'true') {
-                      x1 = source.x + NODE_WIDTH * 0.3;
+                      x1 = source.x + NODE_WIDTH * 0.3 + sourceOffset;
                     } else if (edge.sourcePort === 'false') {
-                      x1 = source.x + NODE_WIDTH * 0.7;
+                      x1 = source.x + NODE_WIDTH * 0.7 + sourceOffset;
                     }
                   }
 
-                  x2 = target.x + NODE_WIDTH / 2;
+                  x2 = target.x + NODE_WIDTH / 2 + targetOffset;
                   y2 = target.y;
                 }
 

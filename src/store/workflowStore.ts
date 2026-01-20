@@ -209,13 +209,27 @@ const validateWorkflow = (
   return { ok: true, triggerId: trigger.id };
 };
 
-const resolveInputKey = (node: WorkflowNode) => {
+const resolveInputKey = (node: WorkflowNode, context?: Record<string, unknown>) => {
   const raw = node.config?.['key'];
   if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim();
+  
+  // If it's a multi-input node, we might want to resolve all keys
+  if (node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields'])) {
+    return 'multi_input_results';
+  }
+
   return node.id;
 };
 
-const createModelForAgent = (agent: { model_config?: any; name?: string; role?: string }) => {
+const resolveOllamaBaseUrl = (port?: number) => {
+  if (!port) return OLLAMA_BASE_URL;
+  if (typeof window === 'undefined') return `http://localhost:${port}`;
+  const protocol = window.location.protocol || 'http:';
+  const host = window.location.hostname || 'localhost';
+  return `${protocol}//${host}:${port}`;
+};
+
+const createModelForAgent = (agent: { model_config?: any; name?: string; role?: string }, baseUrl?: string) => {
   const modelConfig = agent?.model_config || {};
   const modelName =
     typeof modelConfig === 'object' && modelConfig
@@ -223,7 +237,7 @@ const createModelForAgent = (agent: { model_config?: any; name?: string; role?: 
       : undefined;
   const resolvedModel = typeof modelName === 'string' && modelName.length > 0 ? modelName : OLLAMA_MODEL;
   const model = new ChatOllama({
-    baseUrl: OLLAMA_BASE_URL,
+    baseUrl: baseUrl || OLLAMA_BASE_URL,
     model: resolvedModel,
     temperature: modelConfig.temperature ?? 0.7,
     topP: modelConfig.top_p,
@@ -242,6 +256,8 @@ const invokeWithContext = async (
   const contextString =
     Object.keys(context).length > 0 ? JSON.stringify(context, null, 2).slice(0, 12_000) : '';
   const effectiveUserPrompt = contextString.length > 0 ? `${userPrompt}\n\nContext:\n${contextString}` : userPrompt;
+  
+  console.log(`[Ollama] Invoking model ${model.model} for task: ${userPrompt.slice(0, 50)}...`);
   
   const maxRetries = 3;
   let lastError: Error | null = null;
@@ -459,13 +475,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
 
       // If resuming, we might want to fetch the last execution context
-      let initialContext = { ...parameters };
+      let initialContext: Record<string, any> = { 
+        ...parameters,
+        global_memory: '',
+        workflow_start_time: new Date().toISOString()
+      };
       if (resumeFromNodeId) {
         const lastExecution = get().executions.find(e => e.workflow_id === workflowId);
         if (lastExecution) {
           // In a real app, we'd fetch the context from the database for that execution
           // For now, we'll try to use the last execution's parameters
-          initialContext = { ...lastExecution.parameters, ...parameters };
+          initialContext = { 
+            ...lastExecution.parameters, 
+            ...parameters,
+            global_memory: (lastExecution.parameters as any)?.global_memory || '',
+            workflow_start_time: (lastExecution.parameters as any)?.workflow_start_time || new Date().toISOString()
+          };
           executionId = lastExecution.id;
           set({ currentExecutionId: executionId });
         }
@@ -503,6 +528,70 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         if (list) list.push(e);
       }
 
+      const incomingNonConditionalByTarget = new Map<string, Set<string>>();
+      for (const e of edges) {
+        const sourceNode = nodeById.get(e.source);
+        if (!sourceNode || sourceNode.type === 'condition') continue;
+        const targetNode = nodeById.get(e.target);
+        if (!targetNode) continue;
+        let set = incomingNonConditionalByTarget.get(e.target);
+        if (!set) {
+          set = new Set<string>();
+          incomingNonConditionalByTarget.set(e.target, set);
+        }
+        set.add(e.source);
+      }
+
+      const joinTargets = new Set<string>();
+      for (const [target, sources] of incomingNonConditionalByTarget.entries()) {
+        const targetNode = nodeById.get(target);
+        if (!targetNode) continue;
+        if (sources.size <= 1) continue;
+        if (targetNode.type === 'trigger' || targetNode.type === 'input') continue;
+        joinTargets.add(target);
+      }
+
+      const parallelTargets = new Set<string>();
+      for (const node of nodes) {
+        if (node.type === 'condition') continue;
+        const outgoing = outgoingById.get(node.id) ?? [];
+        if (outgoing.length > 1) {
+          for (const edge of outgoing) {
+            parallelTargets.add(edge.target);
+          }
+        }
+      }
+
+      const nodePortMap = new Map<string, number>();
+      const usedPorts = new Set<number>();
+      let nextOllamaPort = 11435;
+      for (const target of parallelTargets) {
+        let port = nextOllamaPort;
+        while (usedPorts.has(port)) port += 1;
+        usedPorts.add(port);
+        nodePortMap.set(target, port);
+        nextOllamaPort = port + 1;
+      }
+
+      const waitForPrerequisites = async (nodeId: string, state: typeof WorkflowExecutionState.State) => {
+        const sources = incomingNonConditionalByTarget.get(nodeId);
+        if (!sources || sources.size <= 1) return;
+        let attempts = 0;
+        while (true) {
+          await waitForControls();
+          if (get().executionStatus === 'cancelling') throw new Error('EXECUTION_CANCELLED');
+          if (get().executionStatus === 'failed') throw new Error('EXECUTION_FAILED');
+          const outputs = state.nodeOutputs || {};
+          const missing = Array.from(sources).filter((source) => outputs[source] === undefined);
+          if (missing.length === 0) return;
+          attempts += 1;
+          if (attempts >= 200) {
+            throw new Error(`Prerequisites not satisfied for node ${nodeId}: ${missing.join(', ')}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      };
+
       const parseConditionDecision = (raw: string) => {
         const start = raw.indexOf('{');
         const end = raw.lastIndexOf('}');
@@ -533,17 +622,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             await waitForControls();
             if (get().executionStatus === 'cancelling') throw new Error('EXECUTION_CANCELLED');
 
+            await waitForPrerequisites(node.id, state);
+
             set({ activeNodeId: node.id });
             const agent = agentForNode.get(node.id);
             const agentIdUsed = agent?.id ?? null;
-            const { model, modelName } = createModelForAgent(agent || {});
+            const assignedPort = nodePortMap.get(node.id);
+            const baseUrl = resolveOllamaBaseUrl(assignedPort);
+            const { model, modelName } = createModelForAgent(agent || {}, baseUrl);
 
             const taskInput = {
               nodeId: node.id,
               nodeType: node.type,
               label: node.label ?? '',
               description: node.description ?? '',
-              inputKey: node.type === 'input' ? resolveInputKey(node) : undefined,
+              inputKey: node.type === 'input' ? resolveInputKey(node, state.context) : undefined,
+              ollamaPort: assignedPort ?? null,
+              ollamaBaseUrl: baseUrl,
             };
 
             const pending = await db.query(
@@ -571,125 +666,34 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               ...baseContext,
               agent_memory: agent?.working_memory || '',
               agent_facts: (agent?.facts as Record<string, unknown> | undefined) || {},
+              ollama_base_url: baseUrl,
             };
 
             let outputText = '';
             let outputPayload: Record<string, unknown> = {};
             let contextDelta: Record<string, unknown> = {};
 
-            if (node.type === 'input') {
-              const isMultiInput = node.config?.['isMultiInput'] === true;
-              const inputKey = resolveInputKey(node);
-
-              const userValue = await new Promise((resolve) => {
-                let isResolved = false;
-                const resolveOnce = (value: any) => {
-                  if (isResolved) return;
-                  isResolved = true;
-                  clearInterval(cancelPoll);
-                  resolve(value);
-                };
-
-                const cancelPoll = setInterval(() => {
-                  if (get().executionStatus === 'cancelling') {
-                    set({ pendingInput: null });
-                    resolveOnce(undefined);
-                  }
-                }, 200);
-
-                if (isMultiInput) {
-                  const fields = parseJsonValue<any[]>(node.config?.['fields'], []);
-                  set({
-                    pendingInput: {
-                      nodeId: node.id,
-                      label: node.label || 'Multi-Input',
-                      type: 'multi',
-                      fields: fields.map(f => ({
-                        key: f.key,
-                        label: f.label || f.key,
-                        type: f.type || 'text',
-                        options: f.options,
-                        defaultValue: f.defaultValue
-                      })),
-                      resolve: resolveOnce,
-                    },
-                  });
-                } else {
-                  const inputTypeRaw = node.config?.['inputType'];
-                  const inputType =
-                    inputTypeRaw === 'text' ||
-                    inputTypeRaw === 'number' ||
-                    inputTypeRaw === 'select' ||
-                    inputTypeRaw === 'boolean'
-                      ? inputTypeRaw
-                      : 'text';
-
-                  set({
-                    pendingInput: {
-                      nodeId: node.id,
-                      label: node.label || inputKey,
-                      type: inputType,
-                      options: Array.isArray(node.config?.['options']) ? (node.config?.['options'] as string[]) : undefined,
-                      resolve: resolveOnce,
-                    },
-                  });
-                }
-              });
-
-              await waitForControls();
-              if (get().executionStatus === 'cancelling') throw new Error('EXECUTION_CANCELLED');
-
-              const systemPrompt =
-                agent?.system_prompt ||
-                `You are an information collector. Format the data entered by the user for the workflow.`;
-              const userPrompt = `Data collection: ${node.label || inputKey}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, { ...agentContext, [inputKey]: userValue }, waitForControls);
+            if (node.type === 'condition') {
+              const conditionPrompt = `You are a decision-making agent. Analyze the provided context and determine if the condition "${node.label || node.description}" is met.
+Return ONLY valid JSON:
+{
+  "decision": true|false,
+  "reasoning": "Brief explanation of why"
+}`;
+              const res = await invokeWithContext(model, conditionPrompt, "Determine the condition outcome based on context.", agentContext, waitForControls);
               tokenUsageEvents.push(res.metadata);
-              outputText = res.content;
-              outputPayload = { value: userValue, message: outputText };
+              const parsed = parseConditionDecision(res.content);
+              const decision = parsed ? parsed.decision : false;
+              const reasoning = parsed ? parsed.reasoning : "Failed to parse condition decision, defaulting to false.";
               
-              if (isMultiInput && typeof userValue === 'object' && userValue !== null) {
-                contextDelta = { ...userValue, lastOutput: outputText };
-              } else {
-                contextDelta = { [inputKey]: userValue, lastOutput: outputText };
-              }
-            } else if (node.type === 'condition') {
-              const systemPrompt = `You are a critical evaluator. Decide if the condition is met.\nReturn ONLY valid JSON with this exact shape:\n{"decision": true|false, "reasoning": "string"}`;
-              const first = await invokeWithContext(model, systemPrompt, `Evaluate this condition:\n${node.label || node.description || node.id}`, agentContext, waitForControls);
-              tokenUsageEvents.push(first.metadata);
-              let parsed = parseConditionDecision(first.content);
-
-              if (!parsed) {
-                const retry = await invokeWithContext(
-                  model,
-                  systemPrompt,
-                  `Your previous response was invalid JSON for the required schema.\nReturn ONLY valid JSON matching {"decision": true|false, "reasoning": "string"}.\n\nCondition:\n${node.label || node.description || node.id}\n\nPrevious response:\n${first.content}`,
-                  agentContext,
-                  waitForControls
-                );
-                tokenUsageEvents.push(retry.metadata);
-                parsed = parseConditionDecision(retry.content);
-              }
-
-              if (!parsed) {
-                throw new Error('Condition node: invalid JSON decision after retry');
-              }
-
-              outputText = parsed.raw;
-              outputPayload = { decision: parsed.decision, reasoning: parsed.reasoning, raw: parsed.raw };
-              contextDelta = {
-                [`condition:${node.id}:decision`]: parsed.decision,
-                [`condition:${node.id}:reasoning`]: parsed.reasoning,
-                lastOutput: parsed.raw,
+              outputText = `Condition: ${node.label || node.id}\nDecision: ${decision}\nReasoning: ${reasoning}`;
+              outputPayload = { decision, reasoning };
+              contextDelta = { 
+                [`condition:${node.id}:decision`]: decision,
+                [`condition:${node.id}:reasoning`]: reasoning,
+                lastOutput: outputText
               };
-            } else if (node.type === 'trigger') {
-              const systemPrompt = `You are a workflow trigger. Prepare the initial data for the workflow.`;
-              const userPrompt = `Trigger: ${node.label || node.description || node.id}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
-              tokenUsageEvents.push(res.metadata);
-              outputText = res.content;
-              outputPayload = { message: outputText };
-              contextDelta = { lastOutput: outputText };
+              console.log(`[Workflow] Condition node ${node.id} evaluated to: ${decision}. Reasoning: ${reasoning}`);
             } else if (node.type === 'output') {
               const systemPrompt = `You are responsible for the final output. Format the results for the channel: ${(agentContext as any).outputType || 'database'}.`;
               const userPrompt = `Format this result: ${node.label || node.description || node.id}`;
@@ -698,7 +702,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               outputText = res.content;
               outputPayload = { message: outputText };
               contextDelta = { lastOutput: outputText };
-            } else {
+
+              // Special handling for bash script delivery
+              if (outputText.includes('#!/bin/bash') || outputText.includes('cat <<\'EOF\'')) {
+                console.log(`[Workflow] Detected bash script delivery in node ${node.id}`);
+                outputPayload.is_script = true;
+                outputPayload.script_type = 'bash';
+                
+                // Ensure the script is explicitly stored in the context for easy retrieval
+                contextDelta.bash_script = outputText;
+              }
+            } else if (node.type === 'input') {
               const systemPrompt =
                 agent?.system_prompt ||
                 `You are an expert ${roleForNodeType(node.type)}. Your name is ${agent?.name || 'Agent'}.\nExecute the following task professionally and concisely.`;
@@ -738,13 +752,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
               outputText = contentOut;
               outputPayload = { message: outputText, loopCount };
+              const inputKey = resolveInputKey(node, agentContext);
+              
+              let multiInputDelta: Record<string, any> = {};
+              if (node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields'])) {
+                // Try to parse the output as JSON if it's a multi-input node
+                try {
+                  const parsed = JSON.parse(outputText);
+                  if (typeof parsed === 'object' && parsed !== null) {
+                    multiInputDelta = parsed;
+                  }
+                } catch (e) {
+                  console.warn(`[Workflow] Failed to parse multi-input output as JSON for node ${node.id}`);
+                }
+              }
+
               contextDelta = {
                 lastOutput: outputText,
                 [`loop:${node.id}:count`]: loopCount,
+                [inputKey]: outputText,
+                ...multiInputDelta
               };
             }
 
             const derived = deriveWorkingMemoryAndFacts(outputText, agent?.facts as Record<string, unknown> | undefined);
+            
+            // Update global memory with a summary of the node's output
+            const globalMemoryUpdate = `${state.context.global_memory || ''}\n[${node.label || node.id}] ${outputText.slice(0, 200)}...`.trim();
+            contextDelta.global_memory = globalMemoryUpdate;
+
             if (agent?.id) {
               await db.query('UPDATE agents SET working_memory = $2, facts = $3 WHERE id = $1', [
                 agent.id,
@@ -807,39 +843,24 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       workflowGraph.addEdge(START, nodeName(triggerId));
 
-      const incomingNonConditionalByTarget = new Map<string, Set<string>>();
-      for (const e of edges) {
-        const sourceNode = nodeById.get(e.source);
-        if (!sourceNode || sourceNode.type === 'condition') continue;
-        const targetNode = nodeById.get(e.target);
-        if (!targetNode) continue;
-        let set = incomingNonConditionalByTarget.get(e.target);
-        if (!set) {
-          set = new Set<string>();
-          incomingNonConditionalByTarget.set(e.target, set);
-        }
-        set.add(e.source);
-      }
-
-      const joinTargets = new Set<string>();
-      for (const [target, sources] of incomingNonConditionalByTarget.entries()) {
-        const targetNode = nodeById.get(target);
-        if (!targetNode) continue;
-        if (sources.size <= 1) continue;
-        if (targetNode.type === 'trigger' || targetNode.type === 'input') continue;
-        joinTargets.add(target);
-      }
-
       for (const node of nodes) {
         if (node.type !== 'condition') continue;
         const outgoing = outgoingById.get(node.id) ?? [];
-        workflowGraph.addConditionalEdges(nodeName(node.id), (state: typeof WorkflowExecutionState.State) => {
-          const decision = Boolean((state.context || {})[`condition:${node.id}:decision`]);
-          const candidates = outgoing.filter((e) => e.sourcePort === (decision ? 'true' : 'false'));
-          const target = candidates[0]?.target;
-          if (!target) return END;
-          return nodeName(target);
-        });
+      workflowGraph.addConditionalEdges(nodeName(node.id), (state: typeof WorkflowExecutionState.State) => {
+        const decisionKey = `condition:${node.id}:decision`;
+        const decisionValue = (state.context || {})[decisionKey];
+        const decision = Boolean(decisionValue);
+        const candidates = outgoing.filter((e) => e.sourcePort === (decision ? 'true' : 'false'));
+        const target = candidates[0]?.target;
+        
+        if (!target) {
+          console.log(`[Workflow] Condition node ${node.id} decision: ${decision} (from key: ${decisionKey}, value: ${decisionValue}). No target edge found for ${decision ? 'true' : 'false'} port. Routing to END.`);
+          return END;
+        }
+        
+        console.log(`[Workflow] Condition node ${node.id} decision: ${decision}. Routing to node: ${target}`);
+        return nodeName(target);
+      });
       }
 
       for (const node of nodes) {
@@ -866,7 +887,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
 
       const app = workflowGraph.compile();
-      await app.invoke({ context: { ...parameters }, nodeOutputs: {} });
+      await app.invoke({ context: { ...initialContext }, nodeOutputs: {} });
 
       await db.query('UPDATE executions SET status = $1, completed_at = NOW() WHERE id = $2', [
         'completed',

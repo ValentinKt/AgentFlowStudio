@@ -243,7 +243,12 @@ const Workflows: React.FC = () => {
 
         { id: 'n_synth', label: 'Synthesis & Integration', type: 'action', x: 600, y: 2030, agentId: developer?.id, description: 'Consolidate all sub-task outputs, resolve conflicts, enforce shared interfaces, and integrate into a single production-ready codebase.' },
         { id: 'n_tests', label: 'Run Tests & Build', type: 'action', x: 600, y: 2170, agentId: qaEngineer?.id, description: 'Run lint/typecheck/build and summarize failures (if any).' },
-        { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 2200, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
+        
+        { id: 'n_perf', label: 'Performance Audit', type: 'action', x: 340, y: 2170, agentId: dataAnalyst?.id, description: 'Audit bundle size, memory usage, and runtime efficiency.' },
+        { id: 'n_a11y', label: 'Accessibility Check', type: 'action', x: 860, y: 2170, agentId: ui?.id, description: 'Verify WCAG compliance, screen reader support, and keyboard navigation.' },
+
+        { id: 'c_tests', label: 'Tests Passed?', type: 'condition', x: 600, y: 2310, agentId: manager?.id, config: { conditionTrue: 'Pass', conditionFalse: 'Fail' }, description: 'Decision=true only if tests/build succeeded.' },
+
 
         { id: 'n8', label: 'QA & Integration Check', type: 'condition', x: 600, y: 2330, agentId: qaEngineer?.id, config: { conditionTrue: 'Ready', conditionFalse: 'Needs Fix' }, description: 'Functional acceptance check before deployment.' },
         { id: 'n9', label: 'Refine & Debug', type: 'action', x: 860, y: 2330, agentId: developer?.id, description: 'Fix issues and bugs identified during QA/tests.', config: { loopCount: 2 } },
@@ -306,7 +311,13 @@ const Workflows: React.FC = () => {
         { id: 'e-content-synth', source: 'n_content', target: 'n_synth' },
         { id: 'e-devops-synth', source: 'n_devops', target: 'n_synth' },
         { id: 'e-synth-tests', source: 'n_synth', target: 'n_tests' },
+        { id: 'e-synth-perf', source: 'n_synth', target: 'n_perf' },
+        { id: 'e-synth-a11y', source: 'n_synth', target: 'n_a11y' },
+        
         { id: 'e-tests-cond', source: 'n_tests', target: 'c_tests' },
+        { id: 'e-perf-cond', source: 'n_perf', target: 'c_tests' },
+        { id: 'e-a11y-cond', source: 'n_a11y', target: 'c_tests' },
+
         { id: 'e-tests-fail', source: 'c_tests', target: 'n9', sourcePort: 'false' },
         { id: 'e-tests-pass', source: 'c_tests', target: 'n8', sourcePort: 'true' },
 
