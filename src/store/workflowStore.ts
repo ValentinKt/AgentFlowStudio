@@ -331,11 +331,11 @@ interface WorkflowState {
     fields?: Array<{
       key: string;
       label: string;
-      type: 'text' | 'number' | 'select' | 'boolean';
+      type: 'text' | 'textarea' | 'number' | 'select' | 'boolean';
       options?: string[];
       defaultValue?: any;
     }>;
-    type: 'text' | 'number' | 'select' | 'boolean' | 'multi';
+    type: 'text' | 'textarea' | 'number' | 'select' | 'boolean' | 'multi';
     options?: string[];
     resolve: (value: any) => void;
   } | null;
@@ -441,18 +441,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   executeWorkflow: async (workflowId, parameters, resumeFromNodeId) => {
+    console.log(`[Workflow] Starting executeWorkflow for ID: ${workflowId}`);
     set({ isLoading: true, error: null, isExecuting: true, executionStatus: 'running', currentExecutionId: null, failedNodeId: null });
     let executionId: string | null = null;
     try {
       const workflow = get().workflows.find(w => w.id === workflowId);
       if (!workflow || !workflow.configuration) throw new Error('Workflow not found');
+      console.log(`[Workflow] Found workflow: ${workflow.name}`);
 
       const config = parseJsonValue<Record<string, unknown>>(workflow.configuration, {});
       const nodes = parseJsonValue<WorkflowNode[]>(config['nodes'], []);
       const edges = parseJsonValue<WorkflowEdge[]>(config['edges'], []);
+      console.log(`[Workflow] Config: ${nodes.length} nodes, ${edges.length} edges`);
       if (useAgentStore.getState().agents.length === 0) {
+        console.log('[Workflow] Fetching agents...');
         await useAgentStore.getState().fetchAgents();
       }
+      console.log('[Workflow] Validating graph...');
       const graphValidation = validateWorkflow(nodes, edges);
       const validationErrors: string[] = [];
       const triggerId = graphValidation.ok ? graphValidation.triggerId : null;
@@ -462,17 +467,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const agentForNode = new Map<string, any>();
       for (const node of nodes) {
         const availableAgents = agentStore.agents;
-        const resolved =
-          node.agentId && node.agentId.length > 0
-            ? availableAgents.find((a) => a.id === node.agentId)
-            : agentStore.suggestAgents({
-                role: roleForNodeType(node.type),
-                text: `${node.label ?? ''} ${node.description ?? ''}`,
-                limit: 1,
-              })[0]?.agent;
-        if (!resolved) {
+        let resolved = null;
+
+        if (node.agentId && node.agentId.length > 0) {
+          resolved = availableAgents.find((a) => a.id === node.agentId);
+        } else if (node.type !== 'input' && node.type !== 'trigger') {
+          // Only suggest agents for non-input, non-trigger nodes if agentId is missing
+          resolved = agentStore.suggestAgents({
+            role: roleForNodeType(node.type),
+            text: `${node.label ?? ''} ${node.description ?? ''}`,
+            limit: 1,
+          })[0]?.agent;
+        }
+
+        if (!resolved && node.type !== 'input' && node.type !== 'trigger') {
           validationErrors.push(`Missing agent for node ${node.id}`);
-        } else {
+        } else if (resolved) {
           agentForNode.set(node.id, resolved);
         }
       }
@@ -526,7 +536,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
       };
 
-      const nodeName = (id: string) => `wf:${id}`;
+      const nodeName = (id: string) => `wf_${id}`;
       const nodeById = new Map(nodes.map((n) => [n.id, n]));
       const outgoingById = new Map<string, WorkflowEdge[]>();
       for (const n of nodes) outgoingById.set(n.id, []);
@@ -720,72 +730,102 @@ Return ONLY valid JSON:
                 contextDelta.bash_script = outputText;
               }
             } else if (node.type === 'input') {
-              const systemPrompt =
-                agent?.system_prompt ||
-                `You are an expert ${roleForNodeType(node.type)}. Your name is ${agent?.name || 'Agent'}.\nExecute the following task professionally and concisely.`;
+              if (!agentIdUsed) {
+                console.log(`[Workflow] Node ${node.id} is an interactive input node. Waiting for user...`);
+                const fields = node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields']) 
+                  ? node.config['fields'] as any[] 
+                  : [{ key: 'value', label: node.label || 'Input', type: 'text' }];
+                
+                // Wait for user to provide input
+                const inputResult = await new Promise<Record<string, unknown>>((resolve) => {
+                  set({ 
+                    pendingInput: { 
+                      nodeId: node.id, 
+                      label: node.label || 'Input',
+                      type: 'multi', 
+                      fields,
+                      resolve: (value) => {
+                        resolve(value);
+                      }
+                    } 
+                  });
+                });
+                
+                outputPayload = inputResult;
+                const inputKey = resolveInputKey(node, agentContext);
+                outputText = JSON.stringify(inputResult);
+                contextDelta = {
+                  ...inputResult,
+                  lastOutput: outputText,
+                  [inputKey]: outputText
+                };
+              } else {
+                const systemPrompt =
+                  agent?.system_prompt ||
+                  `You are an expert ${roleForNodeType(node.type)}. Your name is ${agent?.name || 'Agent'}.\nExecute the following task professionally and concisely.`;
 
-              const userPrompt = node.label || node.description || 'Task';
-              const loopCountRaw = node.config?.['loopCount'];
-              const loopCountParsed =
-                typeof loopCountRaw === 'number'
-                  ? loopCountRaw
-                  : typeof loopCountRaw === 'string'
-                    ? Number(loopCountRaw)
-                    : 1;
-              const loopCount = Number.isFinite(loopCountParsed) && loopCountParsed > 0 ? Math.floor(loopCountParsed) : 1;
-              let contentOut = '';
-              let loopContext: Record<string, unknown> = { ...agentContext };
+                const userPrompt = node.label || node.description || 'Task';
+                const loopCountRaw = node.config?.['loopCount'];
+                const loopCountParsed =
+                  typeof loopCountRaw === 'number'
+                    ? loopCountRaw
+                    : typeof loopCountRaw === 'string'
+                      ? Number(loopCountRaw)
+                      : 1;
+                const loopCount = Number.isFinite(loopCountParsed) && loopCountParsed > 0 ? Math.floor(loopCountParsed) : 1;
+                let contentOut = '';
+                let loopContext: Record<string, unknown> = { ...agentContext };
 
-              for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
-                for (let iteration = 0; iteration < 2; iteration += 1) {
-                  await waitForControls();
-                  const res = await invokeWithContext(model, systemPrompt, userPrompt, loopContext, waitForControls);
-                  tokenUsageEvents.push(res.metadata);
-                  contentOut = res.content;
+                for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
+                  for (let iteration = 0; iteration < 2; iteration += 1) {
+                    await waitForControls();
+                    const res = await invokeWithContext(model, systemPrompt, userPrompt, loopContext, waitForControls);
+                    tokenUsageEvents.push(res.metadata);
+                    contentOut = res.content;
 
-                  const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
-                  const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, loopContext, waitForControls);
-                  tokenUsageEvents.push(reflection.metadata);
-                  if (reflection.content.includes('APPROVED')) break;
+                    const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
+                    const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, loopContext, waitForControls);
+                    tokenUsageEvents.push(reflection.metadata);
+                    if (reflection.content.includes('APPROVED')) break;
+                  }
+
+                  loopContext = {
+                    ...loopContext,
+                    [`loop:${node.id}:count`]: loopCount,
+                    [`loop:${node.id}:iteration`]: loopIndex + 1,
+                    lastOutput: contentOut,
+                  };
                 }
 
-                loopContext = {
-                  ...loopContext,
+                outputText = contentOut;
+                outputPayload = { message: outputText, loopCount };
+                const inputKey = resolveInputKey(node, agentContext);
+                console.log(`[Workflow] Input node ${node.id} using key: ${inputKey}`);
+                
+                let multiInputDelta: Record<string, any> = {};
+                if (node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields'])) {
+                  try {
+                    const cleanedOutput = outputText.trim();
+                    const jsonMatch = cleanedOutput.match(/\{[\s\S]*\}/);
+                    const jsonToParse = jsonMatch ? jsonMatch[0] : cleanedOutput;
+                    
+                    const parsed = JSON.parse(jsonToParse);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                      multiInputDelta = parsed;
+                      console.log(`[Workflow] Successfully parsed multi-input JSON for node ${node.id}:`, multiInputDelta);
+                    }
+                  } catch (e) {
+                    console.warn(`[Workflow] Failed to parse multi-input output as JSON for node ${node.id}. Output was: ${outputText.slice(0, 100)}...`);
+                  }
+                }
+
+                contextDelta = {
+                  lastOutput: outputText,
                   [`loop:${node.id}:count`]: loopCount,
-                  [`loop:${node.id}:iteration`]: loopIndex + 1,
-                  lastOutput: contentOut,
+                  [inputKey]: outputText,
+                  ...multiInputDelta
                 };
               }
-
-              outputText = contentOut;
-              outputPayload = { message: outputText, loopCount };
-              const inputKey = resolveInputKey(node, agentContext);
-              console.log(`[Workflow] Input node ${node.id} using key: ${inputKey}`);
-              
-              let multiInputDelta: Record<string, any> = {};
-              if (node.config?.['isMultiInput'] && Array.isArray(node.config?.['fields'])) {
-                // Try to parse the output as JSON if it's a multi-input node
-                try {
-                  const cleanedOutput = outputText.trim();
-                  const jsonMatch = cleanedOutput.match(/\{[\s\S]*\}/);
-                  const jsonToParse = jsonMatch ? jsonMatch[0] : cleanedOutput;
-                  
-                  const parsed = JSON.parse(jsonToParse);
-                  if (typeof parsed === 'object' && parsed !== null) {
-                    multiInputDelta = parsed;
-                    console.log(`[Workflow] Successfully parsed multi-input JSON for node ${node.id}:`, multiInputDelta);
-                  }
-                } catch (e) {
-                  console.warn(`[Workflow] Failed to parse multi-input output as JSON for node ${node.id}. Output was: ${outputText.slice(0, 100)}...`);
-                }
-              }
-
-              contextDelta = {
-                lastOutput: outputText,
-                [`loop:${node.id}:count`]: loopCount,
-                [inputKey]: outputText,
-                ...multiInputDelta
-              };
             }
 
             const derived = deriveWorkingMemoryAndFacts(outputText, agent?.facts as Record<string, unknown> | undefined);
@@ -902,6 +942,7 @@ Return ONLY valid JSON:
         workflowGraph.addEdge(sources.map((s) => nodeName(s)), nodeName(target));
       }
 
+      console.log(`[Workflow] Compiling graph for: ${workflow.name}`);
       const app = workflowGraph.compile();
       console.log(`[Workflow] Starting execution of workflow: ${workflow.name} (ID: ${executionId})`);
       await app.invoke({ context: { ...initialContext }, nodeOutputs: {} });
@@ -916,7 +957,7 @@ Return ONLY valid JSON:
       get().fetchExecutions(workflowId);
 
       // Check if it's the Ultimate App Creator workflow and if it has a local deployment node
-      if (workflow?.name === 'Ultimate App Creator AI') {
+      if (workflow?.name === 'Ultimate App Creator AI' && typeof window !== 'undefined') {
         // Delay slightly to let the user see the completion
         setTimeout(() => {
           if (confirm('Workflow complete! Your application is ready at http://localhost:3000. Would you like to view the result?')) {

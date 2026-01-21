@@ -1,4 +1,5 @@
 import { db, initSchema, SYSTEM_USER_ID } from '../src/lib/db';
+import './mock-browser.js';
 import { useWorkflowStore } from '../src/store/workflowStore';
 import { useAgentStore } from '../src/store/agentStore';
 import { useUserStore } from '../src/store/userStore';
@@ -67,10 +68,8 @@ async function testUltimateWorkflow() {
     let workflowId = existingWorkflow?.id;
 
     if (!workflowId) {
-      // For testing, we'll create a simplified version of the workflow to ensure it runs to completion faster
-      // but still includes the critical multi-input and bash script nodes.
+      console.log('Creating new Ultimate App Creator AI Workflow...');
       const updatedAgents = useAgentStore.getState().agents;
-      const manager = updatedAgents.find(a => a.role === 'global_manager');
       const developer = updatedAgents.find(a => a.role === 'developer');
       const output = updatedAgents.find(a => a.role === 'output');
 
@@ -83,13 +82,13 @@ async function testUltimateWorkflow() {
             type: 'input', 
             x: 100, 
             y: 200,
-            config: {
-              isMultiInput: true,
+            config: { 
+              isMultiInput: true, 
               fields: [
-                { key: 'app_name', label: 'App Name', type: 'text', defaultValue: 'Test App' },
-                { key: 'requirements', label: 'Requirements', type: 'text', defaultValue: 'A simple todo list' }
-              ]
-            }
+                { key: 'app_name', label: 'App Name', type: 'text' },
+                { key: 'app_description', label: 'App Description', type: 'textarea' }
+              ] 
+            } 
           },
           { id: 'n_logic', label: 'Core Logic', type: 'action', x: 100, y: 300, agentId: developer?.id },
           { id: 'n_script', label: 'Bash Build Script', type: 'action', x: 100, y: 400, agentId: developer?.id },
@@ -109,6 +108,41 @@ async function testUltimateWorkflow() {
         configuration: config as any,
         status: 'active'
       });
+    } else {
+      console.log('Updating existing Ultimate App Creator AI Workflow...');
+      const updatedAgents = useAgentStore.getState().agents;
+      const developer = updatedAgents.find(a => a.role === 'developer');
+      const output = updatedAgents.find(a => a.role === 'output');
+
+      const config = {
+        nodes: [
+          { id: 'n1', label: 'Trigger', type: 'trigger', x: 100, y: 100 },
+          { 
+            id: 'i_multi', 
+            label: 'Project Inputs', 
+            type: 'input', 
+            x: 100, 
+            y: 200,
+            config: { 
+              isMultiInput: true, 
+              fields: [
+                { key: 'app_name', label: 'App Name', type: 'text' },
+                { key: 'app_description', label: 'App Description', type: 'textarea' }
+              ] 
+            } 
+          },
+          { id: 'n_logic', label: 'Core Logic', type: 'action', x: 100, y: 300, agentId: developer?.id },
+          { id: 'n_script', label: 'Bash Build Script', type: 'action', x: 100, y: 400, agentId: developer?.id },
+          { id: 'n_out', label: 'Final Output', type: 'output', x: 100, y: 500, agentId: output?.id }
+        ],
+        edges: [
+          { id: 'e1', source: 'n1', target: 'i_multi' },
+          { id: 'e2', source: 'i_multi', target: 'n_logic' },
+          { id: 'e3', source: 'n_logic', target: 'n_script' },
+          { id: 'e4', source: 'n_script', target: 'n_out' }
+        ]
+      };
+      await workflowStore.updateWorkflow(workflowId, { configuration: config as any });
     }
 
     // 5. Execute Workflow
@@ -121,9 +155,10 @@ async function testUltimateWorkflow() {
       target_platform: 'Web'
     };
 
-    // We use a promise wrapper because executeWorkflow is async but might trigger UI interactions
-    // In a test environment, we want to monitor the execution state.
-    await workflowStore.executeWorkflow(workflowId, testParams);
+    // We run executeWorkflow without await to monitor it in the loop
+    workflowStore.executeWorkflow(workflowId, testParams).catch(err => {
+      console.error('❌ Async Workflow Execution Error:', err);
+    });
 
     console.log('--- Workflow Execution Started ---');
     
@@ -133,7 +168,11 @@ async function testUltimateWorkflow() {
       const state = useWorkflowStore.getState();
       const execution = state.executions.find(e => e.id === state.currentExecutionId);
       
-      console.log(`Status: ${state.executionStatus} | Active Node: ${state.activeNodeId}`);
+      if (state.error) {
+        console.error(`❌ Workflow Error State: ${state.error}`);
+      }
+      
+      console.log(`Status: ${state.executionStatus} | Active Node: ${state.activeNodeId} | Error: ${state.error || 'none'}`);
       
       if (state.executionStatus === 'failed') {
         console.error('❌ Workflow Failed!');
@@ -144,7 +183,7 @@ async function testUltimateWorkflow() {
       if (state.executionStatus === 'idle' && state.currentExecutionId && execution?.status === 'completed') {
         console.log('✅ Workflow Completed Successfully!');
         isDone = true;
-        break;
+        process.exit(0);
       }
 
       // If pending input, provide it automatically

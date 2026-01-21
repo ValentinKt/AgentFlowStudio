@@ -1,6 +1,6 @@
 import { ChatOllama } from "@langchain/ollama";
 
-export const OLLAMA_MODEL = (typeof import.meta !== "undefined" && import.meta.env?.OLLAMA_MODEL) || "gemini-3-flash-preview";
+export const OLLAMA_MODEL = (typeof import.meta !== "undefined" && import.meta.env?.OLLAMA_MODEL) || "qwen3-coder:480b-cloud";
 export const OLLAMA_BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.OLLAMA_BASE_URL) ||
   (typeof window === "undefined"

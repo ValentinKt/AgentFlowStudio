@@ -349,7 +349,7 @@ Return ONLY valid JSON with this exact shape:
 export class TriggerGraph extends BaseWorkflowGraph {
   buildGraph() {
     const triggerNode = async (state: typeof BaseAgentState.State) => {
-      const systemPrompt = `You are a workflow trigger. Prepare the initial data for the workflow using the Gemini-3-Flash-Preview model capabilities.`;
+      const systemPrompt = `You are a workflow trigger. Prepare the initial data for the workflow using the ${OLLAMA_MODEL} model capabilities.`;
       const content = await this.invokeModel(systemPrompt, `Trigger: ${state.currentTask}`, state.context);
       
       return {
