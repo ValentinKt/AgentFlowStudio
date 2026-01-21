@@ -58,3 +58,4 @@
 [x] Enhance Visual Workflow Canvas controls and viewport fitting
 [x] Improve node port visibility on canvas interactions
 [x] Run lint and typecheck after canvas update
+[x] Add workflow-level model override selection and execution usage

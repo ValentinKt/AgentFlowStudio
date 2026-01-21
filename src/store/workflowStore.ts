@@ -231,12 +231,21 @@ const resolveOllamaBaseUrl = (port?: number) => {
 
 type ModelOption = { model: ChatOllama; name: string };
 
-const createModelsForAgent = (agent: { model_config?: any; name?: string; role?: string }, baseUrl?: string) => {
+const createModelsForAgent = (
+  agent: { model_config?: any; name?: string; role?: string },
+  baseUrl?: string,
+  workflowModelName?: string
+) => {
   const modelConfig = agent?.model_config || {};
-  const modelName =
-    typeof modelConfig === 'object' && modelConfig
-      ? (modelConfig as { model_name?: unknown }).model_name
+  const workflowOverride =
+    typeof workflowModelName === 'string' && workflowModelName.trim().length > 0
+      ? workflowModelName.trim()
       : undefined;
+  const modelName =
+    workflowOverride ??
+    (typeof modelConfig === 'object' && modelConfig
+      ? (modelConfig as { model_name?: unknown }).model_name
+      : undefined);
   const preferredModel = typeof modelName === 'string' && modelName.length > 0 ? modelName : undefined;
   const modelList = getModelFallbackList(preferredModel);
   const uniqueModels = Array.from(new Set(modelList.length > 0 ? modelList : [OLLAMA_MODEL]));
@@ -478,6 +487,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const config = parseJsonValue<Record<string, unknown>>(workflow.configuration, {});
       const nodes = parseJsonValue<WorkflowNode[]>(config['nodes'], []);
       const edges = parseJsonValue<WorkflowEdge[]>(config['edges'], []);
+      const workflowModelConfig = isRecord(config['model_config']) ? config['model_config'] : undefined;
+      const workflowModelName =
+        typeof workflowModelConfig?.['model_name'] === 'string' ? workflowModelConfig['model_name'] : undefined;
       console.log(`[Workflow] Config: ${nodes.length} nodes, ${edges.length} edges`);
       if (useAgentStore.getState().agents.length === 0) {
         console.log('[Workflow] Fetching agents...');
@@ -672,7 +684,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const agentIdUsed = agent?.id ?? null;
             const assignedPort = nodePortMap.get(node.id);
             const baseUrl = resolveOllamaBaseUrl(assignedPort);
-            const { modelOptions, primaryModel } = createModelsForAgent(agent || {}, baseUrl);
+            const { modelOptions, primaryModel } = createModelsForAgent(agent || {}, baseUrl, workflowModelName);
 
             const taskInput = {
               nodeId: node.id,

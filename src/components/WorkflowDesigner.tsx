@@ -40,6 +40,7 @@ import {
 import { useAgentStore } from '../store/agentStore';
 import { useWorkflowStore } from '../store/workflowStore';
 import { ActionGraph, ConditionGraph, InputGraph, OutputGraph, TriggerGraph } from '../lib/graphFactory';
+import { fetchOllamaModels, OLLAMA_MODEL } from '../lib/ollama';
 
 interface Node {
   id: string;
@@ -217,6 +218,13 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('vertical');
   const [isSimulating, setIsSimulating] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelsSource, setModelsSource] = useState<'ollama' | 'env'>('env');
+  const [workflowModelName, setWorkflowModelName] = useState<string>(() => {
+    const config = workflow.configuration as Record<string, unknown> | undefined;
+    const modelConfig = config?.model_config as { model_name?: string } | undefined;
+    return typeof modelConfig?.model_name === 'string' ? modelConfig.model_name : '';
+  });
 
   const NODE_WIDTH = 256;
   const NODE_HEIGHT = 140;
@@ -245,6 +253,15 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  useEffect(() => {
+    const loadModels = async () => {
+      const result = await fetchOllamaModels();
+      setAvailableModels(result.models);
+      setModelsSource(result.source);
+    };
+    loadModels();
+  }, []);
 
   useEffect(() => {
     simulationStatusRef.current = simulationStatus;
@@ -388,7 +405,15 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
   };
 
   const handleSave = () => {
-    onSave({ nodes, edges });
+    const baseConfig =
+      workflow.configuration && typeof workflow.configuration === 'object' ? (workflow.configuration as Record<string, unknown>) : {};
+    const nextConfig: Record<string, unknown> = { ...baseConfig, nodes, edges };
+    if (workflowModelName && workflowModelName.trim().length > 0) {
+      nextConfig.model_config = { model_name: workflowModelName.trim() };
+    } else if ('model_config' in nextConfig) {
+      delete nextConfig.model_config;
+    }
+    onSave(nextConfig);
   };
 
   const handlePause = () => {
@@ -1038,6 +1063,32 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Tools */}
         <div className="w-72 border-r border-slate-100 p-6 space-y-8 overflow-y-auto flex-shrink-0 bg-slate-50/50">
+          <div className="space-y-2">
+            <Typography variant="overline" className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+              Workflow Model
+            </Typography>
+            <FormControl fullWidth size="small">
+              <InputLabel id="workflow-model-label">Workflow Model</InputLabel>
+              <Select
+                labelId="workflow-model-label"
+                value={workflowModelName}
+                label="Workflow Model"
+                onChange={(event) =>
+                  setWorkflowModelName(typeof event.target.value === 'string' ? event.target.value : '')
+                }
+              >
+                <MenuItem value="">Use Agent Defaults</MenuItem>
+                {availableModels.map((model) => (
+                  <MenuItem key={model} value={model}>
+                    {model}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" className="text-[10px] text-slate-400">
+              Source: {modelsSource === 'ollama' ? 'Ollama' : 'Env'}
+            </Typography>
+          </div>
           <div>
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Step Library</h4>
             <div className="grid grid-cols-2 gap-2">
