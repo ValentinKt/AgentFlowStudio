@@ -51,3 +51,4 @@
 [x] Refactor and refine the "Ultimate App Creator AI" workflow structure
 [x] Run and test the workflow, analyze logs, and fix any issues
 [x] Fix Ollama connection reset error and improve retry logic for cloud models
+[x] Show agent characteristics in step properties panel

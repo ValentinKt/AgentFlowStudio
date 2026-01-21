@@ -31,7 +31,11 @@ import {
   Tooltip,
   Box,
   Typography,
-  Divider
+  Divider,
+  Card,
+  CardContent,
+  Stack,
+  Chip
 } from '@mui/material';
 import { useAgentStore } from '../store/agentStore';
 import { useWorkflowStore } from '../store/workflowStore';
@@ -294,6 +298,22 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
           limit: 1,
         })[0]?.agent
       : undefined;
+  const assignedAgent = selectedNode?.agentId ? agents.find(a => a.id === selectedNode.agentId) : undefined;
+  const displayAgent = assignedAgent ?? suggestedAgent;
+  const displayAgentCapabilities = Array.isArray(displayAgent?.capabilities)
+    ? displayAgent?.capabilities.filter(Boolean)
+    : [];
+  const modelConfigEntries = displayAgent?.model_config
+    ? Object.entries(displayAgent.model_config).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    : [];
+  const factsText =
+    displayAgent?.facts && Object.keys(displayAgent.facts).length > 0
+      ? JSON.stringify(displayAgent.facts, null, 2)
+      : '';
+  const performanceText =
+    displayAgent?.performance && Object.keys(displayAgent.performance).length > 0
+      ? JSON.stringify(displayAgent.performance, null, 2)
+      : '';
 
   const addNode = (type: Node['type'] = 'action') => {
     const newNode: Node = {
@@ -1077,6 +1097,116 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                         Suggested: <span className="font-semibold text-slate-700">{suggestedAgent.name}</span>
                       </div>
                     ) : null}
+                    {displayAgent ? (
+                      <Card variant="outlined" className="border-teal-100 bg-teal-50/40">
+                        <CardContent className="p-3">
+                          <Stack spacing={1.5}>
+                            <Box className="flex items-center justify-between">
+                              <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-500">
+                                Agent Characteristics
+                              </Typography>
+                              {!assignedAgent && suggestedAgent ? (
+                                <Typography variant="caption" className="text-[10px] text-slate-400">
+                                  Auto-assign suggestion
+                                </Typography>
+                              ) : null}
+                            </Box>
+                            <Divider className="border-slate-200" />
+                            <Stack spacing={0.5}>
+                              <Typography variant="body2" className="text-[11px] text-slate-700">
+                                <span className="font-semibold">Name:</span> {displayAgent.name}
+                              </Typography>
+                              <Typography variant="body2" className="text-[11px] text-slate-700">
+                                <span className="font-semibold">Role:</span> {displayAgent.role.replace(/_/g, ' ')}
+                              </Typography>
+                              <Typography variant="body2" className="text-[11px] text-slate-700">
+                                <span className="font-semibold">Priority:</span> {displayAgent.priority}
+                              </Typography>
+                              <Typography variant="body2" className="text-[11px] text-slate-700">
+                                <span className="font-semibold">Status:</span> {displayAgent.is_active ? 'Active' : 'Inactive'}
+                              </Typography>
+                            </Stack>
+
+                            {displayAgentCapabilities.length > 0 ? (
+                              <Box className="flex flex-wrap gap-1">
+                                {displayAgentCapabilities.map((capability, idx) => (
+                                  <Chip
+                                    key={`${displayAgent.id}-cap-${idx}`}
+                                    size="small"
+                                    label={capability}
+                                    variant="outlined"
+                                    className="border-teal-200 text-teal-700 bg-white"
+                                  />
+                                ))}
+                              </Box>
+                            ) : null}
+
+                            {displayAgent.system_prompt ? (
+                              <Box className="rounded-lg border border-slate-200 bg-white/80 p-2">
+                                <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-400">
+                                  System Prompt
+                                </Typography>
+                                <Typography variant="body2" className="text-[11px] text-slate-600 whitespace-pre-wrap">
+                                  {displayAgent.system_prompt}
+                                </Typography>
+                              </Box>
+                            ) : null}
+
+                            {displayAgent.working_memory ? (
+                              <Box className="rounded-lg border border-slate-200 bg-white/80 p-2">
+                                <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-400">
+                                  Working Memory
+                                </Typography>
+                                <Typography variant="body2" className="text-[11px] text-slate-600 whitespace-pre-wrap">
+                                  {displayAgent.working_memory}
+                                </Typography>
+                              </Box>
+                            ) : null}
+
+                            {modelConfigEntries.length > 0 ? (
+                              <Box className="rounded-lg border border-slate-200 bg-white/80 p-2">
+                                <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-400">
+                                  Model Config
+                                </Typography>
+                                <Box className="space-y-0.5">
+                                  {modelConfigEntries.map(([key, value]) => (
+                                    <Typography key={`${displayAgent.id}-model-${key}`} variant="body2" className="text-[11px] text-slate-600">
+                                      <span className="font-semibold">{key}:</span> {String(value)}
+                                    </Typography>
+                                  ))}
+                                </Box>
+                              </Box>
+                            ) : null}
+
+                            {factsText ? (
+                              <Box className="rounded-lg border border-slate-200 bg-white/80 p-2">
+                                <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-400">
+                                  Facts
+                                </Typography>
+                                <Box component="pre" className="text-[10px] text-slate-600 whitespace-pre-wrap">
+                                  {factsText}
+                                </Box>
+                              </Box>
+                            ) : null}
+
+                            {performanceText ? (
+                              <Box className="rounded-lg border border-slate-200 bg-white/80 p-2">
+                                <Typography variant="caption" className="text-[10px] font-bold uppercase text-slate-400">
+                                  Performance
+                                </Typography>
+                                <Box component="pre" className="text-[10px] text-slate-600 whitespace-pre-wrap">
+                                  {performanceText}
+                                </Box>
+                              </Box>
+                            ) : null}
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="text-[11px] text-slate-400">
+                        Select or assign an agent to view details.
+                      </div>
+                    )}
                   </div>
 
                   {selectedNode.type === 'trigger' && (
