@@ -5,7 +5,7 @@ import { useUserStore } from './userStore';
 import { useAgentStore } from './agentStore';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { ChatOllama } from '@langchain/ollama';
-import { OLLAMA_BASE_URL, OLLAMA_MODEL } from '../lib/ollama';
+import { OLLAMA_BASE_URL, OLLAMA_MODEL, createAgentModel, getModelFallbackList, isRateLimitError } from '../lib/ollama';
 
 const parseJsonValue = <T,>(value: unknown, fallback: T): T => {
   if (value === null || value === undefined) return fallback;
@@ -229,25 +229,31 @@ const resolveOllamaBaseUrl = (port?: number) => {
   return `${protocol}//${host}:${port}`;
 };
 
-const createModelForAgent = (agent: { model_config?: any; name?: string; role?: string }, baseUrl?: string) => {
+type ModelOption = { model: ChatOllama; name: string };
+
+const createModelsForAgent = (agent: { model_config?: any; name?: string; role?: string }, baseUrl?: string) => {
   const modelConfig = agent?.model_config || {};
   const modelName =
     typeof modelConfig === 'object' && modelConfig
       ? (modelConfig as { model_name?: unknown }).model_name
       : undefined;
-  const resolvedModel = typeof modelName === 'string' && modelName.length > 0 ? modelName : OLLAMA_MODEL;
-  const model = new ChatOllama({
-    baseUrl: baseUrl || OLLAMA_BASE_URL,
-    model: resolvedModel,
-    temperature: modelConfig.temperature ?? 0.7,
-    topP: modelConfig.top_p,
-    numPredict: modelConfig.max_tokens,
-  });
-  return { model, modelName: resolvedModel };
+  const preferredModel = typeof modelName === 'string' && modelName.length > 0 ? modelName : undefined;
+  const modelList = getModelFallbackList(preferredModel);
+  const uniqueModels = Array.from(new Set(modelList.length > 0 ? modelList : [OLLAMA_MODEL]));
+  const modelOptions = uniqueModels.map((name) => ({
+    name,
+    model: createAgentModel(name, {
+      baseUrl: baseUrl || OLLAMA_BASE_URL,
+      temperature: modelConfig.temperature ?? 0.7,
+      topP: modelConfig.top_p,
+      numPredict: modelConfig.max_tokens,
+    }),
+  }));
+  return { modelOptions, primaryModel: modelOptions[0]?.name ?? OLLAMA_MODEL };
 };
 
 const invokeWithContext = async (
-  model: ChatOllama,
+  modelOptions: ModelOption[],
   systemPrompt: string,
   userPrompt: string,
   context: Record<string, unknown>,
@@ -256,59 +262,79 @@ const invokeWithContext = async (
   const contextString =
     Object.keys(context).length > 0 ? JSON.stringify(context, null, 2).slice(0, 12_000) : '';
   const effectiveUserPrompt = contextString.length > 0 ? `${userPrompt}\n\nContext:\n${contextString}` : userPrompt;
-  
-  console.log(`[Ollama] Invoking model ${model.model} for task: ${userPrompt.slice(0, 50)}...`);
-  
+
   const maxRetries = 3;
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // Check pause/cancel status before each attempt
-    if (waitForControls) await waitForControls();
+  const resolvedOptions =
+    modelOptions.length > 0
+      ? modelOptions
+      : [
+          {
+            name: OLLAMA_MODEL,
+            model: createAgentModel(OLLAMA_MODEL),
+          },
+        ];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+  for (let modelIndex = 0; modelIndex < resolvedOptions.length; modelIndex += 1) {
+    const currentOption = resolvedOptions[modelIndex];
+    const model = currentOption.model;
+    console.log(`[Ollama] Invoking model ${currentOption.name} for task: ${userPrompt.slice(0, 50)}...`);
 
-    try {
-      const response = await model.invoke([
-        ['system', systemPrompt],
-        ['user', effectiveUserPrompt],
-      ], { signal: controller.signal });
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (waitForControls) await waitForControls();
 
-      const content = typeof response.content === 'string' ? response.content : String(response.content);
-      
-      if (!content || content.trim().length === 0) {
-        throw new Error("Model returned an empty response, possibly due to a stream interruption.");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      try {
+        const response = await model.invoke([
+          ['system', systemPrompt],
+          ['user', effectiveUserPrompt],
+        ], { signal: controller.signal });
+
+        const content = typeof response.content === 'string' ? response.content : String(response.content);
+
+        if (!content || content.trim().length === 0) {
+          throw new Error("Model returned an empty response, possibly due to a stream interruption.");
+        }
+
+        const meta = (response as any)?.response_metadata ?? (response as any)?.additional_kwargs ?? undefined;
+        return { content, metadata: meta };
+      } catch (err) {
+        lastError = err as Error;
+        const errorMessage = (lastError.message || String(lastError)).toLowerCase();
+
+        const isStreamError = errorMessage.includes("empty response") || 
+                             errorMessage.includes("did not receive done or success response in stream");
+        const isTimeout = lastError.name === 'AbortError' || 
+                          errorMessage.includes('timeout') ||
+                          errorMessage.includes('etimedout');
+        const isConnectionReset = errorMessage.includes("connection reset") || 
+                                 errorMessage.includes("econnreset") ||
+                                 errorMessage.includes("peer reset");
+
+        if (isRateLimitError(lastError)) {
+          break;
+        }
+
+        if (attempt < maxRetries - 1 && (isStreamError || isTimeout || isConnectionReset)) {
+          console.warn(`Attempt ${attempt + 1} failed (${isConnectionReset ? 'Connection reset' : isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          continue;
+        }
+
+        if (isTimeout) {
+          throw new Error("Model execution timed out after 60 seconds. Please check if Ollama is responsive.");
+        }
+        throw lastError;
+      } finally {
+        clearTimeout(timeoutId);
       }
+    }
 
-      const meta = (response as any)?.response_metadata ?? (response as any)?.additional_kwargs ?? undefined;
-      return { content, metadata: meta };
-    } catch (err) {
-      lastError = err as Error;
-      const errorMessage = (lastError.message || String(lastError)).toLowerCase();
-      
-      const isStreamError = errorMessage.includes("empty response") || 
-                           errorMessage.includes("did not receive done or success response in stream");
-      const isTimeout = lastError.name === 'AbortError' || 
-                        errorMessage.includes('timeout') ||
-                        errorMessage.includes('etimedout');
-      const isConnectionReset = errorMessage.includes("connection reset") || 
-                               errorMessage.includes("econnreset") ||
-                               errorMessage.includes("peer reset");
-
-      if (attempt < maxRetries - 1 && (isStreamError || isTimeout || isConnectionReset)) {
-        console.warn(`Attempt ${attempt + 1} failed (${isConnectionReset ? 'Connection reset' : isTimeout ? 'Timeout' : 'Stream error'}). Retrying in ${1000 * (attempt + 1)}ms...`);
-        // Wait a bit before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-        continue;
-      }
-      
-      if (isTimeout) {
-        throw new Error("Model execution timed out after 60 seconds. Please check if Ollama is responsive.");
-      }
-      throw lastError;
-    } finally {
-      clearTimeout(timeoutId);
+    if (!lastError || !isRateLimitError(lastError)) {
+      break;
     }
   }
 
@@ -646,7 +672,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const agentIdUsed = agent?.id ?? null;
             const assignedPort = nodePortMap.get(node.id);
             const baseUrl = resolveOllamaBaseUrl(assignedPort);
-            const { model, modelName } = createModelForAgent(agent || {}, baseUrl);
+            const { modelOptions, primaryModel } = createModelsForAgent(agent || {}, baseUrl);
 
             const taskInput = {
               nodeId: node.id,
@@ -667,7 +693,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                 'pending',
                 JSON.stringify(taskInput),
                 JSON.stringify(state.context),
-                modelName,
+                primaryModel,
                 JSON.stringify([{ status: 'pending', at: nowIso() }]),
               ]
             );
@@ -697,7 +723,7 @@ Return ONLY valid JSON:
   "decision": true|false,
   "reasoning": "Brief explanation of why"
 }`;
-              const res = await invokeWithContext(model, conditionPrompt, "Determine the condition outcome based on context.", agentContext, waitForControls);
+              const res = await invokeWithContext(modelOptions, conditionPrompt, "Determine the condition outcome based on context.", agentContext, waitForControls);
               tokenUsageEvents.push(res.metadata);
               const parsed = parseConditionDecision(res.content);
               const decision = parsed ? parsed.decision : false;
@@ -714,7 +740,7 @@ Return ONLY valid JSON:
             } else if (node.type === 'output') {
               const systemPrompt = `You are responsible for the final output. Format the results for the channel: ${(agentContext as any).outputType || 'database'}.`;
               const userPrompt = `Format this result: ${node.label || node.description || node.id}`;
-              const res = await invokeWithContext(model, systemPrompt, userPrompt, agentContext, waitForControls);
+              const res = await invokeWithContext(modelOptions, systemPrompt, userPrompt, agentContext, waitForControls);
               tokenUsageEvents.push(res.metadata);
               outputText = res.content;
               outputPayload = { message: outputText };
@@ -779,12 +805,12 @@ Return ONLY valid JSON:
                 for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
                   for (let iteration = 0; iteration < 2; iteration += 1) {
                     await waitForControls();
-                    const res = await invokeWithContext(model, systemPrompt, userPrompt, loopContext, waitForControls);
+                    const res = await invokeWithContext(modelOptions, systemPrompt, userPrompt, loopContext, waitForControls);
                     tokenUsageEvents.push(res.metadata);
                     contentOut = res.content;
 
                     const reflectPrompt = `You are a critical reviewer for the ${roleForNodeType(node.type)} role.\nAnalyze the previous output and suggest 3 small improvements or confirm if it's perfect.\nIf it's perfect, start your response with "APPROVED".`;
-                    const reflection = await invokeWithContext(model, reflectPrompt, `Review this output:\n${contentOut}`, loopContext, waitForControls);
+                    const reflection = await invokeWithContext(modelOptions, reflectPrompt, `Review this output:\n${contentOut}`, loopContext, waitForControls);
                     tokenUsageEvents.push(reflection.metadata);
                     if (reflection.content.includes('APPROVED')) break;
                   }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Alert, Chip, FormControl, InputLabel, MenuItem, Select, Stack } from '@mui/material';
 import { 
   Plus, 
   Search, 
@@ -31,6 +32,7 @@ import TaskAssignment from '../components/TaskAssignment';
 import PerformanceChart from '../components/PerformanceChart';
 import { useNotificationStore } from '../store/notificationStore';
 import { cn } from '../lib/utils';
+import { fetchOllamaModels, OLLAMA_MODEL } from '../lib/ollama';
 
 const roleIcons: Record<AgentRole, React.ElementType> = {
   global_manager: Shield,
@@ -86,12 +88,17 @@ const Agents: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelsSource, setModelsSource] = useState<'ollama' | 'env'>('env');
   const [agentForm, setAgentForm] = useState({
     name: '',
     role: 'prompter' as AgentRole,
     priority: 5,
     capabilities: [] as string[],
     system_prompt: '',
+    model_config: {
+      model_name: OLLAMA_MODEL,
+    },
   });
 
   useEffect(() => {
@@ -104,9 +111,27 @@ const Agents: React.FC = () => {
     }
   }, [storeError, addNotification]);
 
+  useEffect(() => {
+    const loadModels = async () => {
+      const result = await fetchOllamaModels();
+      setAvailableModels(result.models);
+      setModelsSource(result.source);
+    };
+    loadModels();
+  }, []);
+
   const handleOpenCreateModal = () => {
     setEditingAgent(null);
-    setAgentForm({ name: '', role: 'prompter', priority: 5, capabilities: [], system_prompt: '' });
+    setAgentForm({
+      name: '',
+      role: 'prompter',
+      priority: 5,
+      capabilities: [],
+      system_prompt: '',
+      model_config: {
+        model_name: availableModels[0] ?? OLLAMA_MODEL,
+      },
+    });
     setIsModalOpen(true);
   };
 
@@ -118,6 +143,9 @@ const Agents: React.FC = () => {
       priority: agent.priority,
       capabilities: agent.capabilities,
       system_prompt: agent.system_prompt || '',
+      model_config: {
+        model_name: agent.model_config?.model_name || availableModels[0] || OLLAMA_MODEL,
+      },
     });
     setIsModalOpen(true);
   };
@@ -131,6 +159,7 @@ const Agents: React.FC = () => {
         await updateAgent(editingAgent.id, {
           ...agentForm,
           capabilities,
+          model_config: agentForm.model_config,
         });
         addNotification('success', `Agent "${agentForm.name}" updated successfully.`);
       } else {
@@ -138,6 +167,7 @@ const Agents: React.FC = () => {
           ...agentForm,
           is_active: true,
           capabilities,
+          model_config: agentForm.model_config,
         });
         addNotification('success', `Agent "${agentForm.name}" created successfully.`);
       }
@@ -266,6 +296,7 @@ const Agents: React.FC = () => {
 
               const allRoles = [...coreRoles, ...specializedRoles, ...systemRoles];
               let seededCount = 0;
+      const seedModel = availableModels[0] ?? OLLAMA_MODEL;
 
               for (const role of allRoles) {
                 if (!agents.find(a => a.role === role)) {
@@ -274,8 +305,9 @@ const Agents: React.FC = () => {
                     role,
                     priority: role === 'global_manager' ? 10 : 5,
                     capabilities: ['Autonomous Execution', 'LLM reasoning', 'Role-specific expertise'],
-                    is_active: true,
-                    system_prompt: `You are a ${role.replace('_', ' ')}. Your goal is to provide high-quality output for your specific domain.`
+            is_active: true,
+            system_prompt: `You are a ${role.replace('_', ' ')}. Your goal is to provide high-quality output for your specific domain.`,
+            model_config: { model_name: seedModel },
                   });
                   seededCount++;
                 }
@@ -302,12 +334,38 @@ const Agents: React.FC = () => {
         </div>
       </div>
 
+      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <Alert
+          severity={modelsSource === 'ollama' ? 'info' : 'warning'}
+          className="rounded-xl"
+          sx={{ alignItems: 'center' }}
+        >
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-semibold text-slate-800">
+              Available Ollama Models {modelsSource === 'ollama' ? '(live)' : '(fallback)'}
+            </span>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {(availableModels.length > 0 ? availableModels : [OLLAMA_MODEL]).map((model) => (
+                <Chip
+                  key={model}
+                  label={model}
+                  size="small"
+                  variant="outlined"
+                  className="border-teal-200 text-teal-700"
+                />
+              ))}
+            </Stack>
+          </div>
+        </Alert>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <AnimatePresence>
           {filteredAgents.length > 0 ? (
             filteredAgents.map((agent, index) => {
               const Icon = roleIcons[agent.role] ?? Cpu;
               const roleColor = roleColors[agent.role] ?? 'text-slate-600 bg-slate-100';
+              const agentModel = agent.model_config?.model_name || OLLAMA_MODEL;
               return (
                 <motion.div
                   key={agent.id}
@@ -357,6 +415,7 @@ const Agents: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <h4 className="text-base font-bold text-slate-800 truncate">{agent.name}</h4>
                       <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">{agent.role.replace('_', ' ')}</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Model: {agentModel}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <span className="text-xs font-bold text-teal-600">
@@ -482,6 +541,30 @@ const Agents: React.FC = () => {
                     <option value="local_deployer">Local Deployer</option>
                   </optgroup>
                 </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">Ollama Model</label>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="agent-model-label">Model</InputLabel>
+                  <Select
+                    labelId="agent-model-label"
+                    label="Model"
+                    value={agentForm.model_config.model_name || ''}
+                    onChange={(e) =>
+                      setAgentForm({
+                        ...agentForm,
+                        model_config: { model_name: String(e.target.value) },
+                      })
+                    }
+                  >
+                    {(availableModels.length > 0 ? availableModels : [OLLAMA_MODEL]).map((model) => (
+                      <MenuItem key={model} value={model}>
+                        {model}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </div>
 
               <div className="space-y-1">
