@@ -199,6 +199,78 @@ const Agents: React.FC = () => {
     addNotification('success', `Exported ${agent.name}.`);
   };
 
+  const handleExportAgentPython = (agent: Agent) => {
+    const exportPayload = {
+      name: agent.name,
+      role: agent.role,
+      priority: agent.priority,
+      capabilities: agent.capabilities,
+      system_prompt: agent.system_prompt || '',
+      model_config: agent.model_config || {},
+      working_memory: agent.working_memory || '',
+      facts: agent.facts || {},
+      is_active: agent.is_active,
+    };
+    const pythonScript = `import json
+from pathlib import Path
+
+AGENT = json.loads(r'''${JSON.stringify(exportPayload, null, 2)}''')
+
+def build_examples(agent):
+    techniques = ", ".join(agent.get("capabilities") or [])
+    role = agent.get("role", "assistant")
+    system_prompt = agent.get("system_prompt") or ""
+    working_memory = agent.get("working_memory") or ""
+    facts = agent.get("facts") or {}
+    base_instruction = (
+        f"You are {agent.get('name')} with role {role}. "
+        f"Use techniques: {techniques}. "
+        f"System prompt: {system_prompt}. "
+        f"Working memory: {working_memory}. "
+        f"Facts: {json.dumps(facts, ensure_ascii=False)}."
+    )
+    return [
+        {
+            "instruction": base_instruction + " Provide a concise plan for a task.",
+            "input": "Task: Draft a project plan for a new onboarding flow.",
+            "output": "Outline goals, identify stakeholders, map steps, define milestones, and propose success metrics."
+        },
+        {
+            "instruction": base_instruction + " Offer a structured response with clear steps.",
+            "input": "Task: Review the codebase and recommend refactors.",
+            "output": "Scan for hotspots, prioritize by impact, propose modularization, and confirm with tests."
+        },
+        {
+            "instruction": base_instruction + " Respond in the agent's professional tone.",
+            "input": "Task: Summarize key risks in the delivery plan.",
+            "output": "Call out dependencies, staffing gaps, external API risks, and timeline buffers."
+        }
+    ]
+
+def write_jsonl(path, rows):
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\\n")
+
+def main():
+    examples = build_examples(AGENT)
+    output = Path(f"{AGENT.get('name','agent').replace(' ', '_').lower()}_finetune.jsonl")
+    write_jsonl(output, examples)
+    print(f"Wrote {len(examples)} examples to {output}")
+
+if __name__ == "__main__":
+    main()
+`;
+    const dataStr = `data:text/x-python;charset=utf-8,${encodeURIComponent(pythonScript)}`;
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('download', `${agent.name.replace(/\s+/g, '_')}_finetune.py`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    addNotification('success', `Downloaded fine-tune script for ${agent.name}.`);
+  };
+
   const handleImportAgent = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -393,6 +465,13 @@ const Agents: React.FC = () => {
                         title="Export Agent"
                       >
                         <Download size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleExportAgentPython(agent)}
+                        className="p-2 text-slate-400 hover:text-teal-500 hover:bg-teal-50 rounded-lg transition-colors"
+                        title="Download Fine-tune Script"
+                      >
+                        <FileText size={18} />
                       </button>
                       <button
                         onClick={() => toggleAgentStatus(agent.id)}

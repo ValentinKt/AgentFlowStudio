@@ -280,6 +280,32 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
     }
   };
 
+  const fitToView = () => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect || nodes.length === 0) return;
+
+    const minX = Math.min(...nodes.map(node => node.x));
+    const minY = Math.min(...nodes.map(node => node.y));
+    const maxX = Math.max(...nodes.map(node => node.x + NODE_WIDTH));
+    const maxY = Math.max(...nodes.map(node => node.y + NODE_HEIGHT));
+    const contentWidth = Math.max(maxX - minX, NODE_WIDTH);
+    const contentHeight = Math.max(maxY - minY, NODE_HEIGHT);
+    const padding = 160;
+
+    const scaleX = (rect.width - padding) / contentWidth;
+    const scaleY = (rect.height - padding) / contentHeight;
+    const newZoom = Math.min(3, Math.max(0.2, Math.min(scaleX, scaleY)));
+
+    const centerX = minX + contentWidth / 2;
+    const centerY = minY + contentHeight / 2;
+
+    setZoom(newZoom);
+    setViewOffset({
+      x: rect.width / (2 * newZoom) - centerX,
+      y: rect.height / (2 * newZoom) - centerY
+    });
+  };
+
   const selectedNode = nodes.find(n => n.id === selectedNodeId);
   const suggestedAgent =
     selectedNode && (!selectedNode.agentId || selectedNode.agentId.length === 0)
@@ -1670,12 +1696,9 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
             <div className="w-px h-6 bg-slate-100 mx-1" />
 
-            <Tooltip title="Center View">
+            <Tooltip title="Fit to View">
               <IconButton 
-                onClick={() => {
-                  setViewOffset({ x: 0, y: 0 });
-                  setZoom(1);
-                }}
+                onClick={fitToView}
                 className="!rounded-xl !text-slate-600 hover:!text-teal-600"
                 size="small"
               >
@@ -1836,7 +1859,10 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
               })}
             </svg>
 
-            {nodes.map((node) => (
+            {nodes.map((node) => {
+              const showPorts = hoveredNodeId === node.id || selectedNodeId === node.id || linkingSource?.id === node.id;
+
+              return (
               <motion.div
                 key={node.id}
                 data-id={node.id}
@@ -1886,7 +1912,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                 <div className="absolute inset-0 pointer-events-none">
                   {/* Top Input Port */}
                   {node.type !== 'trigger' && (
-                    <div className={`absolute left-1/2 -top-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${layoutDirection === 'vertical' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                    <div className={`absolute left-1/2 -top-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${(layoutDirection === 'vertical' || showPorts) ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
                       <div className="w-1.5 h-1.5 bg-teal-400 rounded-full" />
                     </div>
                   )}
@@ -1895,7 +1921,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   {node.type !== 'output' && node.type !== 'condition' && (
                     <button 
                       onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                      className={`port-connector pointer-events-auto absolute left-1/2 -bottom-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${layoutDirection === 'vertical' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
+                      className={`port-connector pointer-events-auto absolute left-1/2 -bottom-2 -translate-x-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${(layoutDirection === 'vertical' || showPorts) ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
                     >
                       <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id ? 'bg-white' : 'bg-teal-400'}`} />
                     </button>
@@ -1903,7 +1929,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
 
                   {/* Left Input Port */}
                   {node.type !== 'trigger' && (
-                    <div className={`absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${layoutDirection === 'horizontal' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                    <div className={`absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all ${(layoutDirection === 'horizontal' || showPorts) ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
                       <div className="w-1.5 h-1.5 bg-teal-400 rounded-full" />
                     </div>
                   )}
@@ -1912,7 +1938,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   {node.type !== 'output' && node.type !== 'condition' && (
                     <button 
                       onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id); }}
-                      className={`port-connector pointer-events-auto absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${layoutDirection === 'horizontal' ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
+                      className={`port-connector pointer-events-auto absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 rounded-full flex items-center justify-center transition-all hover:scale-125 shadow-sm ${(layoutDirection === 'horizontal' || showPorts) ? 'border-teal-400 opacity-100 scale-100' : 'opacity-0 scale-50'} ${linkingSource?.id === node.id ? 'bg-teal-400 border-teal-400' : 'hover:border-teal-500'}`}
                     >
                       <div className={`w-1.5 h-1.5 rounded-full ${linkingSource?.id === node.id ? 'bg-white' : 'bg-teal-400'}`} />
                     </button>
@@ -1922,7 +1948,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   {node.type === 'condition' && (
                     <>
                       {/* Vertical Condition Outputs */}
-                      <div className={`absolute -bottom-2 inset-x-0 flex justify-around px-8 transition-all ${layoutDirection === 'vertical' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
+                      <div className={`absolute -bottom-2 inset-x-0 flex justify-around px-8 transition-all ${(layoutDirection === 'vertical' || showPorts) ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
                         <button 
                           onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
                           className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-emerald-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-400' : ''}`}
@@ -1940,7 +1966,7 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                       </div>
 
                       {/* Horizontal Condition Outputs */}
-                      <div className={`absolute -right-2 inset-y-0 flex flex-col justify-around py-4 transition-all ${layoutDirection === 'horizontal' ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-2 pointer-events-none'}`}>
+                      <div className={`absolute -right-2 inset-y-0 flex flex-col justify-around py-4 transition-all ${(layoutDirection === 'horizontal' || showPorts) ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-2 pointer-events-none'}`}>
                         <button 
                           onMouseDown={(e) => { e.stopPropagation(); startLinking(node.id, 'true'); }}
                           className={`port-connector pointer-events-auto w-4 h-4 bg-white border-2 border-emerald-400 rounded-full flex items-center justify-center hover:scale-125 transition-all shadow-sm ${linkingSource?.id === node.id && linkingSource.port === 'true' ? 'bg-emerald-400' : ''}`}
@@ -1970,7 +1996,8 @@ const WorkflowDesigner: React.FC<WorkflowDesignerProps> = ({ workflow, onClose, 
                   </button>
                 </div>
               </motion.div>
-            ))}
+              );
+            })}
           </motion.div>
       </div>
     </div>

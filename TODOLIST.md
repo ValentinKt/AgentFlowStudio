@@ -38,6 +38,9 @@
 [x] Display all agents on Agents page
 [x] Add agent import/export actions
 [x] Expose workflow import/export actions
+[x] Add workflow modal actions for edit and download
+[x] Add agent fine-tune script download
+[x] Include attached agents in workflow exports
 [x] Add bash script packaging step to Ultimate App Creator AI workflow
 [x] Test and refine Ultimate App Creator AI workflow delivery steps
 [x] Review error logs and verify workflow execution status
@@ -52,3 +55,6 @@
 [x] Run and test the workflow, analyze logs, and fix any issues
 [x] Fix Ollama connection reset error and improve retry logic for cloud models
 [x] Show agent characteristics in step properties panel
+[x] Enhance Visual Workflow Canvas controls and viewport fitting
+[x] Improve node port visibility on canvas interactions
+[x] Run lint and typecheck after canvas update

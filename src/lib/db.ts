@@ -1,7 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 
-// Initialize PGlite - this will run in the browser
-export const db = new PGlite();
+export const db = new PGlite('idb://agentflowstudio');
 
 export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 

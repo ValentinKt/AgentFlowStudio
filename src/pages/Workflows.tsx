@@ -37,16 +37,37 @@ const Workflows: React.FC = () => {
   const [aiMissing, setAiMissing] = useState<string[]>([]);
   const [aiQuestions, setAiQuestions] = useState<string[]>([]);
   const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
+  const [workflowModalWorkflow, setWorkflowModalWorkflow] = useState<any>(null);
 
   const handleExport = (workflow: any) => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflow, null, 2));
+    const nodeAgentIds = new Set(
+      Array.isArray((workflow.configuration as any)?.nodes)
+        ? (workflow.configuration as any).nodes.map((node: any) => node?.agentId).filter((id: any) => typeof id === 'string' && id.length > 0)
+        : []
+    );
+    const attachedAgents = agents
+      .filter((agent) => nodeAgentIds.has(agent.id))
+      .map((agent) => ({
+        name: agent.name,
+        role: agent.role,
+        priority: agent.priority,
+        capabilities: agent.capabilities,
+        system_prompt: agent.system_prompt || '',
+        model_config: agent.model_config || {},
+        working_memory: agent.working_memory || '',
+        facts: agent.facts || {},
+        is_active: agent.is_active,
+      }));
+    const exportPayload = { ...workflow, agents: attachedAgents };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
     downloadAnchorNode.setAttribute("download", `${workflow.name.replace(/\s+/g, '_')}_config.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
-    addNotification('success', `Exported ${workflow.name} configuration.`);
+    addNotification('success', `Exported ${workflow.name} configuration with ${attachedAgents.length} agents.`);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -788,7 +809,11 @@ const Workflows: React.FC = () => {
                   <History size={18} />
                 </button>
                 <button 
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setWorkflowModalWorkflow(workflow);
+                    setIsWorkflowModalOpen(true);
+                  }}
                   className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
                 >
                   <Settings2 size={18} />
@@ -810,6 +835,65 @@ const Workflows: React.FC = () => {
           ))}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {isWorkflowModalOpen && workflowModalWorkflow && (
+          <div className="fixed inset-0 z-[65] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => {
+                setIsWorkflowModalOpen(false);
+                setWorkflowModalWorkflow(null);
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-700">
+                    <GitBranch size={24} />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-bold text-slate-800 truncate">{workflowModalWorkflow.name}</h2>
+                    <p className="text-sm text-slate-500">
+                      Created {format(new Date(workflowModalWorkflow.created_at), 'MMM d, yyyy')} • {(workflowModalWorkflow.configuration as any)?.nodes?.length || 0} steps
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setSelectedWorkflow(workflowModalWorkflow);
+                      setIsWorkflowModalOpen(false);
+                      setWorkflowModalWorkflow(null);
+                    }}
+                    className="flex-1 px-4 py-3 bg-teal-500 text-white rounded-xl font-bold hover:bg-teal-600 shadow-lg shadow-teal-100 transition-all"
+                  >
+                    Edit Workflow
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleExport(workflowModalWorkflow);
+                      setIsWorkflowModalOpen(false);
+                      setWorkflowModalWorkflow(null);
+                    }}
+                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                  >
+                    Download Config
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Execution Prompt Modal */}
       <AnimatePresence>

@@ -124,13 +124,44 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   updateAgent: async (id, updates) => {
     set({ isLoading: true, error: null });
     try {
-      const keys = Object.keys(updates);
-      const values = Object.values(updates);
-      const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
-      
+      const existingAgent = get().agents.find((agent) => agent.id === id);
+      if (!existingAgent) {
+        set({ isLoading: false });
+        return;
+      }
+
+      const mergedAgent = {
+        ...existingAgent,
+        ...updates,
+      };
+
       const result = await db.query(
-        `UPDATE agents SET ${setClause} WHERE id = $1 RETURNING *`,
-        [id, ...values.map(v => typeof v === 'object' ? JSON.stringify(v) : v)]
+        `UPDATE agents
+         SET name = $2,
+             role = $3,
+             capabilities = $4,
+             priority = $5,
+             is_active = $6,
+             performance = $7,
+             system_prompt = $8,
+             model_config = $9,
+             working_memory = $10,
+             facts = $11
+         WHERE id = $1
+         RETURNING *`,
+        [
+          id,
+          mergedAgent.name,
+          mergedAgent.role,
+          JSON.stringify(mergedAgent.capabilities || []),
+          mergedAgent.priority ?? 5,
+          mergedAgent.is_active !== false,
+          JSON.stringify(mergedAgent.performance || {}),
+          mergedAgent.system_prompt || '',
+          JSON.stringify(mergedAgent.model_config || { model_name: OLLAMA_MODEL }),
+          mergedAgent.working_memory || '',
+          JSON.stringify(mergedAgent.facts || {}),
+        ]
       );
 
       const updatedAgent = result.rows[0] ? normalizeAgentRow(result.rows[0]) : undefined;
