@@ -354,6 +354,261 @@ const Workflows: React.FC = () => {
     }
   };
 
+  const handleCreateBmadWorkflow = async () => {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
+    const bmadAgents = [
+      {
+        name: `BMAD Orchestrator ${stamp}`,
+        role: 'global_manager',
+        priority: 10,
+        capabilities: ['BMAD orchestration', 'Agile planning', 'Risk mitigation'],
+        system_prompt: 'You are the BMAD Orchestrator. Drive vision, scope, priorities, and stage transitions.'
+      },
+      {
+        name: `BMAD Prompt Strategist ${stamp}`,
+        role: 'prompter',
+        priority: 8,
+        capabilities: ['Prompt engineering', 'Prompt templates', 'LLM task structuring'],
+        system_prompt: 'You design prompts aligned to the BMAD steps and ensure clarity and constraints.'
+      },
+      {
+        name: `BMAD Context Curator ${stamp}`,
+        role: 'prompt_manager',
+        priority: 7,
+        capabilities: ['Context management', 'Knowledge retrieval', 'Memory synthesis'],
+        system_prompt: 'You gather and curate context for BMAD execution.'
+      },
+      {
+        name: `BMAD Systems Architect ${stamp}`,
+        role: 'diagram_generator',
+        priority: 7,
+        capabilities: ['Architecture modeling', 'System diagrams', 'Data flow design'],
+        system_prompt: 'You translate BMAD outcomes into architecture diagrams and system design.'
+      },
+      {
+        name: `BMAD Builder ${stamp}`,
+        role: 'developer',
+        priority: 8,
+        capabilities: ['Implementation planning', 'Technical design', 'Delivery'],
+        system_prompt: 'You plan and implement the solution following BMAD guidance.'
+      },
+      {
+        name: `BMAD Experience Designer ${stamp}`,
+        role: 'ui_generator',
+        priority: 6,
+        capabilities: ['UI/UX direction', 'Design system choices', 'Component planning'],
+        system_prompt: 'You define user experience and UI direction.'
+      },
+      {
+        name: `BMAD Insight Analyst ${stamp}`,
+        role: 'data_analyst',
+        priority: 6,
+        capabilities: ['KPI definition', 'Metrics validation', 'Analytics planning'],
+        system_prompt: 'You define KPIs and success metrics for BMAD outcomes.'
+      },
+      {
+        name: `BMAD Research Scout ${stamp}`,
+        role: 'research_assistant',
+        priority: 6,
+        capabilities: ['Competitive research', 'Feasibility checks', 'Source synthesis'],
+        system_prompt: 'You validate feasibility with research and benchmarks.'
+      },
+      {
+        name: `BMAD Market Analyst ${stamp}`,
+        role: 'marketing_strategist',
+        priority: 5,
+        capabilities: ['Market validation', 'Positioning', 'Go-to-market insights'],
+        system_prompt: 'You assess market fit and positioning.'
+      },
+      {
+        name: `BMAD QA Sentinel ${stamp}`,
+        role: 'qa_engineer',
+        priority: 6,
+        capabilities: ['Test planning', 'Quality gates', 'Acceptance criteria'],
+        system_prompt: 'You define testing strategy and acceptance criteria.'
+      },
+      {
+        name: `BMAD Security Sentinel ${stamp}`,
+        role: 'security_auditor',
+        priority: 6,
+        capabilities: ['Threat modeling', 'Security review', 'Compliance checks'],
+        system_prompt: 'You review security risks and propose mitigations.'
+      },
+      {
+        name: `BMAD Compliance Advisor ${stamp}`,
+        role: 'legal_consultant',
+        priority: 5,
+        capabilities: ['Regulatory review', 'Policy alignment', 'Compliance constraints'],
+        system_prompt: 'You assess legal and compliance implications.'
+      },
+      {
+        name: `BMAD Financial Planner ${stamp}`,
+        role: 'financial_advisor',
+        priority: 5,
+        capabilities: ['Budgeting', 'Cost modeling', 'ROI validation'],
+        system_prompt: 'You validate budget constraints and ROI assumptions.'
+      },
+      {
+        name: `BMAD Release Engineer ${stamp}`,
+        role: 'devops_specialist',
+        priority: 5,
+        capabilities: ['Deployment planning', 'Release automation', 'Observability'],
+        system_prompt: 'You plan release strategy, CI/CD, and monitoring.'
+      },
+      {
+        name: `BMAD Output Publisher ${stamp}`,
+        role: 'output',
+        priority: 6,
+        capabilities: ['Executive summaries', 'Actionable outputs', 'Stakeholder reports'],
+        system_prompt: 'You compile BMAD results into a final deliverable.'
+      },
+      {
+        name: `BMAD Decision Gate ${stamp}`,
+        role: 'evaluator',
+        priority: 6,
+        capabilities: ['Decision validation', 'Quality gates', 'Risk assessment'],
+        system_prompt: 'You make gate decisions and route the workflow based on input.'
+      },
+      {
+        name: `BMAD Trigger ${stamp}`,
+        role: 'trigger',
+        priority: 4,
+        capabilities: ['Workflow initialization', 'Input validation'],
+        system_prompt: 'You initiate BMAD workflow execution and confirm inputs.'
+      },
+      {
+        name: `BMAD Knowledge Retriever ${stamp}`,
+        role: 'prompt_retriever',
+        priority: 5,
+        capabilities: ['Knowledge retrieval', 'Reference collection', 'Pattern matching'],
+        system_prompt: 'You retrieve relevant references for BMAD steps.'
+      },
+      {
+        name: `BMAD Local Deployer ${stamp}`,
+        role: 'local_deployer',
+        priority: 4,
+        capabilities: ['Local setup', 'Prototype deployment', 'Environment checks'],
+        system_prompt: 'You prepare local environments and deployment steps.'
+      }
+    ];
+
+    for (const agent of bmadAgents) {
+      await useAgentStore.getState().addAgent({
+        name: agent.name,
+        role: agent.role as AgentRole,
+        priority: agent.priority,
+        capabilities: agent.capabilities,
+        is_active: true,
+        system_prompt: agent.system_prompt
+      });
+    }
+
+    await fetchAgents();
+    const updatedAgents = useAgentStore.getState().agents;
+    const getId = (name: string) => updatedAgents.find((a) => a.name === name)?.id;
+
+    const agentIds = {
+      orchestrator: getId(`BMAD Orchestrator ${stamp}`),
+      prompter: getId(`BMAD Prompt Strategist ${stamp}`),
+      context: getId(`BMAD Context Curator ${stamp}`),
+      architect: getId(`BMAD Systems Architect ${stamp}`),
+      builder: getId(`BMAD Builder ${stamp}`),
+      ux: getId(`BMAD Experience Designer ${stamp}`),
+      analyst: getId(`BMAD Insight Analyst ${stamp}`),
+      research: getId(`BMAD Research Scout ${stamp}`),
+      market: getId(`BMAD Market Analyst ${stamp}`),
+      qa: getId(`BMAD QA Sentinel ${stamp}`),
+      security: getId(`BMAD Security Sentinel ${stamp}`),
+      compliance: getId(`BMAD Compliance Advisor ${stamp}`),
+      finance: getId(`BMAD Financial Planner ${stamp}`),
+      release: getId(`BMAD Release Engineer ${stamp}`),
+      output: getId(`BMAD Output Publisher ${stamp}`),
+      evaluator: getId(`BMAD Decision Gate ${stamp}`),
+      trigger: getId(`BMAD Trigger ${stamp}`),
+      retriever: getId(`BMAD Knowledge Retriever ${stamp}`),
+      deployer: getId(`BMAD Local Deployer ${stamp}`)
+    };
+
+    const configuration = {
+      nodes: [
+        { id: 'n_trigger', label: 'BMAD Trigger', type: 'trigger', x: 120, y: 120, agentId: agentIds.trigger },
+        {
+          id: 'n_input',
+          label: 'Project Intake',
+          type: 'input',
+          x: 120,
+          y: 260,
+          config: {
+            isMultiInput: true,
+            fields: [
+              { key: 'app_name', label: 'App Name', type: 'text' },
+              { key: 'vision', label: 'Vision', type: 'textarea' },
+              { key: 'target_users', label: 'Target Users', type: 'textarea' },
+              { key: 'constraints', label: 'Constraints', type: 'textarea' },
+              { key: 'success_metrics', label: 'Success Metrics', type: 'textarea' },
+              { key: 'compliance_required', label: 'Compliance Required', type: 'boolean' },
+              { key: 'budget', label: 'Budget', type: 'number' },
+              { key: 'timeline', label: 'Timeline', type: 'text' }
+            ]
+          }
+        },
+        { id: 'n_discovery', label: 'Discovery & Vision', type: 'action', x: 120, y: 420, agentId: agentIds.orchestrator },
+        { id: 'n_research', label: 'Research & Feasibility', type: 'action', x: 420, y: 420, agentId: agentIds.research },
+        { id: 'n_market', label: 'Market Positioning', type: 'action', x: 720, y: 420, agentId: agentIds.market },
+        { id: 'n_metrics', label: 'Success Metrics', type: 'action', x: 1020, y: 420, agentId: agentIds.analyst },
+        { id: 'n_retrieve', label: 'Knowledge Retrieval', type: 'action', x: 120, y: 580, agentId: agentIds.retriever },
+        { id: 'n_arch', label: 'Architecture Blueprint', type: 'action', x: 420, y: 580, agentId: agentIds.architect },
+        { id: 'n_prompt', label: 'Prompt Strategy', type: 'action', x: 720, y: 580, agentId: agentIds.prompter },
+        { id: 'n_context', label: 'Context Pack', type: 'action', x: 1020, y: 580, agentId: agentIds.context },
+        { id: 'n_ux', label: 'Experience Design', type: 'action', x: 120, y: 740, agentId: agentIds.ux },
+        { id: 'n_build', label: 'Delivery Plan', type: 'action', x: 420, y: 740, agentId: agentIds.builder },
+        { id: 'n_budget', label: 'Budget Validation', type: 'action', x: 720, y: 740, agentId: agentIds.finance },
+        { id: 'n_gate', label: 'Compliance Needed?', type: 'condition', x: 1020, y: 740, agentId: agentIds.evaluator, config: { conditionTrue: 'Compliance', conditionFalse: 'Skip' } },
+        { id: 'n_compliance', label: 'Compliance Review', type: 'action', x: 1020, y: 900, agentId: agentIds.compliance },
+        { id: 'n_security', label: 'Security Review', type: 'action', x: 720, y: 900, agentId: agentIds.security },
+        { id: 'n_qa', label: 'Quality Assurance', type: 'action', x: 420, y: 900, agentId: agentIds.qa },
+        { id: 'n_release', label: 'Release & Ops', type: 'action', x: 120, y: 900, agentId: agentIds.release },
+        { id: 'n_deploy', label: 'Local Deployment', type: 'action', x: 120, y: 1060, agentId: agentIds.deployer },
+        { id: 'n_output', label: 'BMAD Delivery', type: 'output', x: 420, y: 1060, agentId: agentIds.output }
+      ],
+      edges: [
+        { id: 'e_trigger_input', source: 'n_trigger', target: 'n_input' },
+        { id: 'e_input_discovery', source: 'n_input', target: 'n_discovery' },
+        { id: 'e_discovery_research', source: 'n_discovery', target: 'n_research' },
+        { id: 'e_research_market', source: 'n_research', target: 'n_market' },
+        { id: 'e_market_metrics', source: 'n_market', target: 'n_metrics' },
+        { id: 'e_metrics_retrieve', source: 'n_metrics', target: 'n_retrieve' },
+        { id: 'e_retrieve_arch', source: 'n_retrieve', target: 'n_arch' },
+        { id: 'e_arch_prompt', source: 'n_arch', target: 'n_prompt' },
+        { id: 'e_prompt_context', source: 'n_prompt', target: 'n_context' },
+        { id: 'e_context_ux', source: 'n_context', target: 'n_ux' },
+        { id: 'e_ux_build', source: 'n_ux', target: 'n_build' },
+        { id: 'e_build_budget', source: 'n_build', target: 'n_budget' },
+        { id: 'e_budget_gate', source: 'n_budget', target: 'n_gate' },
+        { id: 'e_gate_compliance', source: 'n_gate', target: 'n_compliance', sourcePort: 'true' },
+        { id: 'e_gate_security', source: 'n_gate', target: 'n_security', sourcePort: 'false' },
+        { id: 'e_compliance_security', source: 'n_compliance', target: 'n_security' },
+        { id: 'e_security_qa', source: 'n_security', target: 'n_qa' },
+        { id: 'e_qa_release', source: 'n_qa', target: 'n_release' },
+        { id: 'e_release_deploy', source: 'n_release', target: 'n_deploy' },
+        { id: 'e_deploy_output', source: 'n_deploy', target: 'n_output' }
+      ]
+    };
+
+    const workflowId = await createWorkflow({
+      name: `BMAD Agile AI Development ${stamp}`,
+      description: 'Breakthrough Method for Agile AI-Driven Development workflow.',
+      configuration
+    });
+
+    if (workflowId) {
+      await fetchWorkflows();
+      addNotification('success', 'BMAD workflow and agents created.');
+    } else {
+      addNotification('error', 'Failed to create BMAD workflow.');
+    }
+  };
+
   const handleCreateComplexWorkflow = async () => {
     await createWorkflow({
       name: 'Enterprise QA Pipeline',
@@ -438,6 +693,14 @@ const Workflows: React.FC = () => {
           >
             <Activity size={18} />
             Ultimate Creator
+          </button>
+          <button 
+            onClick={handleCreateBmadWorkflow}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 shadow-md shadow-emerald-100 transition-all"
+            title="Create BMAD workflow and agents"
+          >
+            <Sparkles size={18} />
+            BMAD Workflow
           </button>
           <button 
             onClick={handleCreateComplexWorkflow}
